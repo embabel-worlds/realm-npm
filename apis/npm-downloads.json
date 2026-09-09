@@ -1,0 +1,17 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "npm download counts", "version": "1.0" },
+  "servers": [ { "url": "https://api.npmjs.org" } ],
+  "paths": {
+    "/downloads/point/last-week/{name}": {
+      "get": {
+        "operationId": "weeklyDownloads",
+        "summary": "Total downloads of a package over the last seven days",
+        "parameters": [
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "download point" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+# Two sources, no credential. Both npm hosts are open and keyless, so the realm
+# works the moment it is installed with nothing to configure.
+#
+# Only parameter-free-by-package operations are declared. npm's download API
+# does offer arbitrary date ranges, but every range endpoint needs an explicit
+# `from..to` in its path, and a producer's arguments are static — there is no
+# way to say "the last 30 days from today". So this realm answers about the last
+# SEVEN days (a fixed path segment) and about NOW, and says so.
+- url: npm-downloads.json
+  name: npm_downloads
+  type: openapi
+  auth: none
+  operation-ids:
+    - weeklyDownloads
+
+- url: npm-registry.json
+  name: npm_registry
+  type: openapi
+  auth: none
+  operation-ids:
+    - packageLatest

@@ -1,0 +1,28 @@
+name: realm-npm
+description: |
+  The adoption side of your dependencies. OpenSSF scorecards tell you whether a
+  package is well run; they say nothing about whether the ecosystem still uses
+  it. This realm answers the other half: how many times a package was pulled
+  last week, what `npm install` resolves to right now, and under what licence.
+
+  Downloads are momentum, not virtue — a spike is often just a release, and a
+  slide can mean the world moved to something else. Read next to the version and
+  the licence, it tells you which of your dependencies are thriving, which are
+  quietly ossifying, and where an obligation you did not choose crept in.
+
+  Name a package by its exact npm name. Two open, keyless sources answer:
+  npm's download-counts API and the registry itself. Nothing to configure.
+version: 0.1.0
+author: rod
+tags:
+  - npm
+  - dependencies
+  - adoption
+  - openapi
+  - oss
+exports:
+  - npm_downloads
+  - npm_registry
+  - NpmPackage
+  - NpmDownloads
+  - NpmRelease

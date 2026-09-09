@@ -1,0 +1,35 @@
+# Two producers, both keyed per package. npm's download and registry hosts are
+# open and keyless, so nothing here needs configuration.
+#
+# Both endpoints return ONE object, not a list, so `records` selects the whole
+# response with `$` and every projection below is a plain field read. Values
+# arrive typed but reach the views as STRINGS, so the views toInteger() the
+# count before ordering or arithmetic.
+
+- name: weeklyDownloads
+  kind: remote
+  operation: weeklyDownloads
+  records: "$"
+  keyArgs: [name]
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  project:
+    count: downloads
+    periodStart: start
+    periodEnd: end
+  # The count is recomputed daily, so an hour's cache costs nothing in freshness.
+  cache: { kind: ttl, seconds: 3600 }
+
+- name: packageLatest
+  kind: remote
+  operation: packageLatest
+  records: "$"
+  keyArgs: [name]
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  project:
+    version: version
+    description: description
+    license: license
+    homepage: homepage
+  cache: { kind: ttl, seconds: 3600 }

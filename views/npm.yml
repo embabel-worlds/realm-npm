@@ -1,0 +1,55 @@
+# The realm's answer surface. Producer values arrive as STRINGS, so the download
+# count goes through toInteger() before any ORDER BY.
+#
+# PackagePopularity uses OPTIONAL MATCH on the release so a package whose
+# download count fetched but whose registry document did not still appears, with
+# a null version rather than vanishing from the table — an absent row reads as
+# "we don't track it", which would be a lie.
+
+- name: PackagePopularity
+  description: Every tracked package with its last-week downloads, current version and licence — the one line that says whether a dependency is thriving, and what you are on the hook for, most-downloaded first.
+  params:
+    limit:
+      type: int
+      default: 50
+      description: "How many packages to return, most-downloaded first."
+  cypher: |
+    MATCH (p:NpmPackage)-[:HAS_WEEKLY_DOWNLOADS]->(d:NpmDownloads)
+    OPTIONAL MATCH (p)-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+    RETURN p.name AS package,
+           toInteger(d.count) AS weeklyDownloads,
+           r.version AS version,
+           r.license AS license,
+           r.description AS description
+    ORDER BY weeklyDownloads DESC
+    LIMIT $limit
+
+- name: AdoptionRanking
+  description: Tracked packages ranked purely by last-week downloads — the fastest read on which of your dependencies the wider ecosystem leans on most heavily.
+  params:
+    limit:
+      type: int
+      default: 50
+      description: "How many packages to return, most-downloaded first."
+  cypher: |
+    MATCH (p:NpmPackage)-[:HAS_WEEKLY_DOWNLOADS]->(d:NpmDownloads)
+    RETURN p.name AS package,
+           toInteger(d.count) AS weeklyDownloads,
+           d.periodStart AS weekStart,
+           d.periodEnd AS weekEnd
+    ORDER BY weeklyDownloads DESC
+    LIMIT $limit
+
+- name: LicenceSpread
+  description: How the packages you track divide by licence — the spread of obligations across your npm dependencies, most common first. A licence of `unstated` means the registry document carried none, which is worth a look rather than an assumption.
+  params:
+    limit:
+      type: int
+      default: 25
+      description: "How many distinct licences to return."
+  cypher: |
+    MATCH (p:NpmPackage)-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+    RETURN coalesce(r.license, 'unstated') AS license,
+           count(*) AS packages
+    ORDER BY packages DESC
+    LIMIT $limit

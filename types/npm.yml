@@ -1,0 +1,57 @@
+# One STORED type and two VIRTUAL ones.
+#
+#   NpmPackage ──HAS_WEEKLY_DOWNLOADS──▶ NpmDownloads   per package
+#   NpmPackage ──HAS_LATEST_RELEASE────▶ NpmRelease     per package
+#
+# Both virtual types are PER PACKAGE, not shared: two packages downloaded the
+# same number of times are still two different readings. So each one's identity
+# is `key` — the package name the reading was fetched for — and never a value
+# from the response body, which would collapse distinct packages into one node.
+
+- name: NpmPackage
+  description: "A package you depend on or watch. The one thing seeded by hand. `name` is the exact npm name — unscoped, e.g. `react` — and is both the identity and the key every producer fetches by. A wrong name is not an error here; it is a reading that never arrives."
+  properties:
+    name:
+      description: "Exact npm package name, e.g. `react`. Identity, and the key every fetch uses."
+      metadata:
+        identity: "true"
+    notes: "Why you track this — the service that depends on it, or what you are watching for."
+
+# Momentum.
+- name: NpmDownloads
+  description: "How many times this package was downloaded from npm in the last seven days. Reached from NpmPackage via HAS_WEEKLY_DOWNLOADS. This is an ADOPTION signal, not a security one: a spike is often just a fresh release or a CI mirror, and a fall can mean the ecosystem moved on. It means something next to the release date and nothing on its own."
+  virtualJoins:
+    - anchorLabel: NpmPackage
+      relationship: HAS_WEEKLY_DOWNLOADS
+      keyField: name
+      recordKeyField: key
+      producer: weeklyDownloads
+      description: "Last-week download count for a package — for 'is this still widely used'."
+  properties:
+    key:
+      description: "The package name this was fetched for. Identity — one reading per package."
+      metadata:
+        identity: "true"
+    count: "Downloads in the last seven days."
+    periodStart: "First day counted, inclusive (YYYY-MM-DD)."
+    periodEnd: "Last day counted, inclusive (YYYY-MM-DD)."
+
+# Current published state.
+- name: NpmRelease
+  description: "What `npm install <package>` resolves to right now — the latest published version, its licence and its own one-line description. Reached from NpmPackage via HAS_LATEST_RELEASE. The licence is the field that earns this producer its keep: it is the obligation you actually took on, read from the registry rather than from whatever a README claims."
+  virtualJoins:
+    - anchorLabel: NpmPackage
+      relationship: HAS_LATEST_RELEASE
+      keyField: name
+      recordKeyField: key
+      producer: packageLatest
+      description: "Latest published version and metadata for a package."
+  properties:
+    key:
+      description: "The package name. Identity — one latest-release node per package."
+      metadata:
+        identity: "true"
+    version: "Latest published semantic version."
+    description: "The package's own one-line description."
+    license: "SPDX licence id, e.g. `MIT`. Null for the handful of ancient packages that still publish the legacy object form, which is the safe failure rather than a wrong guess."
+    homepage: "Declared project homepage URL, if any."

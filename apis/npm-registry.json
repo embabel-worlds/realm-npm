@@ -1,0 +1,17 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "npm registry", "version": "1.0" },
+  "servers": [ { "url": "https://registry.npmjs.org" } ],
+  "paths": {
+    "/{name}/latest": {
+      "get": {
+        "operationId": "packageLatest",
+        "summary": "The latest published version document for a package",
+        "parameters": [
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "version document" } }
+      }
+    }
+  }
+}
