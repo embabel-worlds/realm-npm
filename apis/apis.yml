@@ -19,3 +19,31 @@
   auth: none
   operation-ids:
     - packageLatest
+
+# deps.dev — Google's Open Source Insights. Keyless like the two npm hosts, and the reason
+# this realm can answer about the dependency GRAPH rather than one package at a time.
+# `system` is a static argument (NPM) because that is the only system this realm models;
+# deps.dev publishes dependencies for four, and the other three 404.
+- url: deps-dev.json
+  name: deps_dev
+  type: openapi
+  auth: none
+  operation-ids:
+    - packageDependencies
+    - packageVersion
+    - projectInfo
+
+# GitHub, for the three facts deps.dev cannot give: ARCHIVED, the default branch's real last commit,
+# and whether the repository a package claims resolves at all. A token lifts the rate limit from 60
+# an hour to 5,000; without one the realm still works and simply reads fewer repositories.
+- url: github-repo.json
+  name: github_repo
+  type: openapi
+  auth: none
+  headers:
+    Accept: "application/vnd.github+json"
+    X-GitHub-Api-Version: "2022-11-28"
+    Authorization: "Bearer ${GH_TOKEN}"
+  operation-ids:
+    - repoFacts
+    - repoLastCommit

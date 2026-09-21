@@ -1,0 +1,49 @@
+# A package in your tree that exactly one account can publish.
+#
+# WHY A RULE AND NOT A QUERY. This is an aggregate that crosses a threshold, and its value is that
+# OTHER rules conclude over it: `publish-concentration.yml` reads this label to find the accounts
+# that are the sole publisher of something you install. Written inline in each consumer instead,
+# the count would be recomputed inside every traversal that needed it, and the definition of
+# "single account" would exist in as many places as there are questions about it.
+#
+# THIS IS NOT A FINDING AND THE NUMBER ONE IS NOT A SMALL NUMBER. Most of npm is maintained by one
+# person. Some of the best-run packages in the registry are maintained by one person. What the
+# label marks is the absence of a second pair of hands — nobody to notice an unexpected release,
+# nobody to publish a fix if the first account is lost — and that is a property of the DEPENDENCY
+# rather than a judgement of the maintainer.
+#
+# THE COUNT IS OF ACCOUNTS, NOT PEOPLE. Two accounts can be one person. One account can be a team's
+# shared credential, or a CI identity. npm publishes nothing that distinguishes them, so this
+# counts what it can see and says so.
+
+name: npm/single-account
+derives: SingleAccountPackage
+description: >-
+  A package in the dependency tree that exactly one npm account is entitled to publish. Marks the
+  absence of a second pair of hands, which is a property of the dependency and not a judgement of
+  its maintainer — most of npm is maintained by one account, including much of its best work.
+  Counts ACCOUNTS: npm publishes nothing that tells a person from a team credential from a CI
+  identity, and two accounts may be one person.
+properties:
+  soleAccount:
+    type: string
+    description: "The one account entitled to publish this package, as the registry reports it today."
+# THE CALLER MUST BRING THE FACTS, and that is a real constraint rather than a style note. A rule
+# body reads what the transaction already holds; it cannot fetch. The dependency tree and its
+# publish rights are producer-backed, so a query that anchors only on the root materialises neither,
+# and this rule set then concludes over an empty graph — truthfully, and uselessly. Every shipped
+# view in `views/supply-chain.yml` therefore walks the tree and reads its accounts FIRST, and the
+# rules conclude over what that brought in. A caller writing its own query must do the same.
+#
+# SEED THE ACCOUNTS FROM THE DEPENDENCIES, never from the root. Binding NpmMaintainer off the root
+# package before the deep fan-out marks that label materialised, and the fan-out to the tree's
+# accounts becomes a semijoin against what is already present — one account back, no error.
+rules:
+  # `count(DISTINCT a.account)` and not `count(a)`: the dependency graph reaches the same package
+  # from several parents, so a package is several nodes here, and the account node is shared by all
+  # of them. Counting edges would count parents.
+  - derive: "(d:SingleAccountPackage {soleAccount: acct})"
+    from: |
+      MATCH (d:NpmDependency)-[:MAINTAINED_BY]->(a:NpmMaintainer)
+      WITH d, count(DISTINCT a.account) AS accounts, head(collect(DISTINCT a.account)) AS acct
+      WHERE accounts = 1

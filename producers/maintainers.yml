@@ -1,0 +1,60 @@
+# WHO CAN PUBLISH. The registry's answer to the question nobody asks it.
+#
+# npm publishes, per package, the list of accounts entitled to push a new version. It publishes
+# no relationship between an account and YOUR application, and that relationship is the one that
+# matters: every large npm incident of the last five years was an authority failure rather than a
+# code flaw. The account was taken, or the account went bad, and the tarball installed exactly as
+# designed. ua-parser-js in 2021 is the clean example — one maintainer, account hijacked, a
+# password stealer shipped to every install for four hours.
+#
+# SAME CALL AS packageLatest, fanned out differently. `/{name}/latest` returns one document with a
+# `maintainers` array; `packageLatest` projects the document, this projects the array. Two
+# producers, one upstream request, and the cache is shared because the cache key is the operation
+# and the arguments rather than the producer.
+#
+# THE TIME WINDOW IS NOW, and it has to be said. `maintainers` is who can publish TODAY. It is not
+# who published the version you have installed, and it is not who could publish when you installed
+# it. An account added yesterday appears here; an account removed yesterday does not. For "who
+# actually pushed the bytes you are running", see `publishedBy` on NpmRelease, which is a different
+# question with a different answer — @babel/core's latest was published by a CI identity, not a
+# person.
+
+- name: npmMaintainers
+  kind: remote
+  operation: packageLatest
+  # The array, one record per account. A package with no `maintainers` key yields nothing, which
+  # is the honest answer rather than a fabricated empty account.
+  records: "$.maintainers[*]"
+  keyArgs: [name]
+  # A SCOPED NPM NAME CONTAINS A SLASH, and the default key separator is a slash: `@babel/core`
+  # was split into `@babel` and `core`, the first half became {name}, and the registry answered 404
+  # for a package nobody asked about. One key field cannot need splitting at all, so any separator
+  # the name cannot contain is correct; the unit separator is the one this engine uses internally.
+  keySplit: "\u001F"
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  project:
+    account: name
+  # npm's own cache-control on this document is 300s for the CDN. An hour is generous for a fact
+  # that changes when someone is added to a package, and cheap: the same fetch already serves
+  # packageLatest.
+  cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }
+
+# BUILD PROVENANCE PER DEPENDENCY, from the same registry document as the maintainers above.
+#
+# The maintainer list says who MAY publish. This says whether what was published can be traced to a
+# workflow run in a named repository, which is the other half of the same question and the only half
+# that is a hard fact rather than a count.
+- name: npmDependencyProvenance
+  kind: remote
+  operation: packageLatest
+  records: "$"
+  keyArgs: [name]
+  keySplit: "\u001F"
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  project:
+    provenanceUrl: dist.attestations.url
+    publishedBy: _npmUser.name
+    version: version
+  cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }

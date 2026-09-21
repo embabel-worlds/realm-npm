@@ -11,6 +11,11 @@
   operation: weeklyDownloads
   records: "$"
   keyArgs: [name]
+  # A SCOPED NPM NAME CONTAINS A SLASH, and the default key separator is a slash: `@babel/core`
+  # was split into `@babel` and `core`, the first half became {name}, and the registry answered 404
+  # for a package nobody asked about. One key field cannot need splitting at all, so any separator
+  # the name cannot contain is correct; the unit separator is the one this engine uses internally.
+  keySplit: "\u001F"
   echoKeyAs: key
   maxKeysPerCall: 1
   project:
@@ -25,6 +30,11 @@
   operation: packageLatest
   records: "$"
   keyArgs: [name]
+  # A SCOPED NPM NAME CONTAINS A SLASH, and the default key separator is a slash: `@babel/core`
+  # was split into `@babel` and `core`, the first half became {name}, and the registry answered 404
+  # for a package nobody asked about. One key field cannot need splitting at all, so any separator
+  # the name cannot contain is correct; the unit separator is the one this engine uses internally.
+  keySplit: "\u001F"
   echoKeyAs: key
   maxKeysPerCall: 1
   project:
@@ -32,4 +42,27 @@
     description: description
     license: license
     homepage: homepage
+    # WHO PUSHED THESE BYTES, which is a different question from who is allowed to. npm records
+    # the account that ran the publish on the version document. It is often a person and it is
+    # increasingly a CI identity — @babel/core's latest reports `GitHub Actions` — and the two are
+    # materially different postures: one credential lives on a laptop, the other in a workflow.
+    # Absent on very old releases, which is why nothing here treats absence as a value.
+    publishedBy: _npmUser.name
+    # The declared source repository. The join key into a repository-scoped realm (OpenSSF
+    # Scorecard keys on `github.com/owner/repo`), and DECLARED is the operative word: this is what
+    # the package says about itself, unverified by npm and unverified here. A package can name any
+    # repository it likes, which is the mechanism behind more than one impersonation.
+    repository: repository.url
+    # BUILD PROVENANCE, and it is the strongest single fact this realm can read. npm records a SLSA
+    # attestation when a version was built by a verifiable workflow from a named repository rather
+    # than pushed from somebody's machine. Everything else here describes WHO may publish; this says
+    # whether what they published can be traced to source at all.
+    #
+    # PRESENT OR ABSENT, never true or false. The projection lands the attestation URL when there is
+    # one and nothing when there is not, because "no attestation" means npm recorded none — it does
+    # NOT mean the package was published carelessly. Provenance is recent, opt-in, and needs a
+    # supported CI; the great majority of the registry predates it. Read an absence as "not stated",
+    # exactly as this realm reads an absent licence.
+    provenanceUrl: dist.attestations.url
+    provenanceType: dist.attestations.provenance.predicateType
   cache: { kind: ttl, seconds: 3600 }

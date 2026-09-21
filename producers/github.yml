@@ -1,0 +1,54 @@
+# THE THREE FACTS DEPS.DEV CANNOT GIVE.
+#
+# Scorecard already folds commit and issue activity into a Maintained score, and scores
+# `request/request` zero with the reason "0 commits and 0 issue activity in the last 90 days". These
+# add what a 0-to-10 cannot: the MAGNITUDE (zero reads the same at 91 days and at six years), the
+# ARCHIVED flag (a project formally retired while its package still installs), and whether the
+# repository a package claims resolves at all — the only way to settle the `UNVERIFIED_METADATA`
+# this realm now surfaces.
+#
+# ISSUE ANALYTICS ARE DELIBERATELY ABSENT, and that is a measured decision rather than an omission.
+# Issues opened versus closed over ninety days, on real repositories: express 18/13, `request` 2/2,
+# `moment` 6/211. `request` has had no commit since February 2020 and scores as keeping up; `moment`
+# scores spectacularly because somebody swept a backlog. Open-issue COUNT is worse still — express
+# carries the largest backlog of any of them and is the healthiest project in the set. A metric that
+# rates a deprecated package as responsive is a metric that will eventually disagree with the
+# evidence printed beside it, so this realm does not ship one.
+
+- name: githubRepoFacts
+  kind: remote
+  operation: repoFacts
+  records: "$"
+  # THREE parts for TWO path params. deps.dev answers `github.com/owner/repo` and GitHub's endpoint
+  # takes owner and repo; the producer can split a key but cannot drop its first segment, and the
+  # only declared key transform is LLM-backed. `host` is named so the split lines up positionally
+  # and is not a parameter the operation declares, so nothing sends it.
+  keyArgs: [host, owner, repo]
+  keySplit: "/"
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  project:
+    archived: archived
+    disabled: disabled
+    pushedAt: pushed_at
+    defaultBranch: default_branch
+    stars: stargazers_count
+    fullName: full_name
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
+
+- name: githubLastCommit
+  kind: remote
+  operation: repoLastCommit
+  # The head of the default branch, which is one record however many the endpoint could return.
+  records: "$[0]"
+  args:
+    per_page: 1
+  keyArgs: [host, owner, repo]
+  keySplit: "/"
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  project:
+    lastCommitDate: commit.committer.date
+    lastCommitBy: commit.author.name
+    lastCommitMessage: commit.message
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }

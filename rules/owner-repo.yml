@@ -1,0 +1,26 @@
+# Split a host-qualified repository key into the `owner/repo` GitHub's API takes.
+#
+# deps.dev answers `github.com/expressjs/express`; GitHub's endpoint is `/repos/{owner}/{repo}`.
+# The producer can split a key on a delimiter but cannot DROP a leading segment, and the only
+# declared key transform is LLM-backed — an absurd way to remove eleven characters. So the split
+# is a rule: ordinary Cypher over a value the graph already holds.
+#
+# GITHUB ONLY, on purpose. deps.dev also indexes GitLab and Bitbucket keys, and their APIs are not
+# the same shape; a rule that stripped any host would produce a key for an endpoint that does not
+# exist. A non-GitHub project simply gets no `ownerRepo`, and a consumer sees the absence.
+
+name: npm/owner-repo
+derives: GitHubBackedProject
+description: >-
+  A source project hosted on GitHub, carrying the `owner/repo` form its API indexes on. Absent for a
+  project hosted anywhere else, which is the honest answer rather than a key that cannot be fetched.
+properties:
+  ownerRepo:
+    type: string
+    description: "The `owner/repo` path GitHub's API takes, e.g. `expressjs/express`."
+rules:
+  - derive: "(s:GitHubBackedProject {ownerRepo: or})"
+    from: |
+      MATCH (s:NpmSourceProject)
+      WHERE s.projectKey STARTS WITH 'github.com/'
+      WITH s, substring(s.projectKey, size('github.com/')) AS or

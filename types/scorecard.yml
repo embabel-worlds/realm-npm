@@ -1,0 +1,111 @@
+# THE REPOSITORY BEHIND THE PACKAGE, and how it is run.
+#
+#   NpmRelease      ──HAS_SOURCE_PROJECT──▶ NpmSourceProject   which repo, and how well we know
+#   NpmSourceProject──HAS_PROJECT_HEALTH──▶ NpmProjectHealth   the headline scorecard
+#   NpmSourceProject──HAS_SCORECARD_CHECK─▶ NpmScorecardCheck  the fourteen checks
+#
+# Two hops from the release rather than one, because the repository key is a fact deps.dev resolves
+# rather than a string this realm parses out of a declared URL. The middle node is where
+# `relationProvenance` lives, and it is the reason the chain is worth its extra hop.
+
+- name: NpmSourceProject
+  description: >-
+    The source repository a published version is related to, as deps.dev resolved it, and HOW WELL
+    THAT LINK IS KNOWN.
+
+    `relationProvenance` is the field to read first and the one nothing else surfaces. It records
+    how the package-to-repository link was established, and for most of npm it reads
+    `UNVERIFIED_METADATA` — meaning the package said so and nobody checked. Every tool that prints a
+    GitHub link beside a package is printing that same unverified claim; this one says so. Treat a
+    repository as a claim to follow until this field says otherwise.
+  properties:
+    projectKey:
+      description: "Host-qualified repository path, e.g. `github.com/expressjs/express`. Identity, and the key the scorecard is fetched by."
+      metadata:
+        identity: "true"
+    forRelease: "The `name|version` this was resolved for — the join link."
+    relationProvenance: "How deps.dev established the link. `UNVERIFIED_METADATA` means the package asserted it and nothing confirmed it."
+  virtualJoins:
+    - anchorLabel: NpmRelease
+      relationship: HAS_SOURCE_PROJECT
+      producerKeyFields: [key, version]
+      recordKeyField: forRelease
+      producer: npmSourceProject
+      maxAnchors: 60
+      description: >-
+        The repository a release claims to come from:
+        `(r:NpmRelease)-[:HAS_SOURCE_PROJECT]->(s:NpmSourceProject)`.
+
+- name: NpmProjectHealth
+  description: >-
+    The repository's OpenSSF Scorecard headline, plus the facts that give it context. Reached from
+    NpmSourceProject via HAS_PROJECT_HEALTH.
+
+    ATTRIBUTABLE, which is what makes it worth quoting. `scannedCommit` and `scorecardDate` say
+    which commit was scanned and when, so a score is a claim about a specific state of a repository
+    rather than a floating number. A stale date describes a repository that may have moved on.
+
+    GOOD FOR RANKING, USELESS FOR DIAGNOSIS. The overall score is a weighted roll-up; when it is low,
+    NpmScorecardCheck is where the reason is. And a project deps.dev has never indexed produces
+    nothing here — which is not the same as scoring badly, and must never be rendered as if it were.
+  properties:
+    key:
+      description: "The repository key this is about. Identity — one reading per repository."
+      metadata:
+        identity: "true"
+    overallScore: "OpenSSF Scorecard overall, 0-10. A weighted roll-up of the checks below."
+    scorecardDate: "When the scorecard was computed."
+    scannedCommit: "The repository commit the scan ran against."
+    stars: "GitHub stars. Popularity, which is NOT maintenance — the xz-utils backdoor landed in a project everybody used."
+    openIssues: "Open issue count. High is ambiguous: a busy project and a neglected one look alike."
+    licence: "The repository's declared licence, which may differ from the package's."
+    summary: "The project's own one-line description."
+  virtualJoins:
+    - anchorLabel: NpmSourceProject
+      relationship: HAS_PROJECT_HEALTH
+      keyField: projectKey
+      recordKeyField: key
+      producer: projectScorecard
+      maxAnchors: 60
+      description: >-
+        How well a repository is run:
+        `(s:NpmSourceProject)-[:HAS_PROJECT_HEALTH]->(h:NpmProjectHealth)`.
+
+- name: NpmScorecardCheck
+  description: >-
+    One OpenSSF Scorecard check for a repository, with its score and Scorecard's own reason. Reached
+    from NpmSourceProject via HAS_SCORECARD_CHECK.
+
+    A SCORE OF -1 IS NOT ZERO. It means the check could not be evaluated or does not apply —
+    `Packaging` reads -1 for express — and averaging it in drags a well-run project down. Every view
+    here excludes -1 and reports how many it excluded, because the difference between "scored badly"
+    and "we could not look" is the difference this whole realm exists to keep.
+
+    NO IDENTITY PROPERTY, deliberately. A row is unique only as a COMBINATION — which repository,
+    which check — and no single field carries that. Naming `name` as the identity would be elegant
+    and wrong: Scorecard names are global, so `Code-Review` reached from two repositories would
+    collapse into ONE node whose score was whichever repository wrote last, and a comparison across
+    packages would silently read one project's scores for another's. An engine-minted deterministic
+    id per distinct row is the honest shape (realm-spec §5.1): identical rows merge, distinct rows
+    never collide.
+
+    `reason` is usually the most useful field on the row: Scorecard states its arithmetic, as in
+    "30 out of 30 merged PRs checked by a CI test". `Code-Review`, `Maintained` and
+    `Dangerous-Workflow` are the three that most often separate a project you can rely on from one
+    you cannot.
+  properties:
+    name: "Check name, e.g. `Code-Review`."
+    key: "The repository key this check was fetched for — the join link, and half of what makes a row unique."
+    score: "0-10, or -1 meaning NOT EVALUATED. Never treat -1 as a failure."
+    reason: "Scorecard's own explanation, usually carrying the arithmetic behind the score."
+  virtualJoins:
+    - anchorLabel: NpmSourceProject
+      relationship: HAS_SCORECARD_CHECK
+      keyField: projectKey
+      recordKeyField: key
+      producer: projectScorecardChecks
+      maxAnchors: 60
+      maxFanoutTotal: 1000
+      description: >-
+        Why a repository scores as it does:
+        `(s:NpmSourceProject)-[:HAS_SCORECARD_CHECK]->(c:NpmScorecardCheck)`.

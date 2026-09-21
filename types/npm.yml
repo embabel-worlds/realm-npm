@@ -55,3 +55,24 @@
     description: "The package's own one-line description."
     license: "SPDX licence id, e.g. `MIT`. Null for the handful of ancient packages that still publish the legacy object form, which is the safe failure rather than a wrong guess."
     homepage: "Declared project homepage URL, if any."
+    publishedBy: >-
+      The npm account that actually ran the publish for THIS version. Different from the
+      maintainer list, which says who is allowed to: this says who did. A CI identity here
+      (`GitHub Actions` is common) means the credential lives in a workflow rather than on
+      somebody's laptop, which is a materially different posture and worth seeing. Absent on old
+      releases, and absence means the registry did not record it rather than that nobody published.
+    provenanceUrl: >-
+      The npm attestation bundle for this version, when one exists. Its PRESENCE is the fact: npm
+      recorded a build attestation, so this tarball can be traced to a workflow run in a named
+      repository rather than to somebody's laptop. Absent means npm recorded none, which is NOT the
+      same as carelessness — provenance is recent, opt-in and needs supported CI, so most of the
+      registry predates it. Read an absence as "not stated".
+    provenanceType: >-
+      The attestation's predicate type, e.g. `https://slsa.dev/provenance/v1`. Present exactly when
+      `provenanceUrl` is, and worth carrying because the predicate is what says WHAT was attested.
+    repository: >-
+      The source repository URL the package DECLARES. Unverified by npm and unverified here — a
+      package may name any repository it likes, which is how impersonation works — so treat it as
+      a claim to follow, never as provenance. It is also the join key into a repository-scoped
+      realm: strip the scheme and `.git` and you have the `github.com/owner/repo` form that
+      OpenSSF Scorecard and deps.dev index on.

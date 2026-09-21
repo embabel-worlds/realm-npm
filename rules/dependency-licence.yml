@@ -1,0 +1,30 @@
+# Flatten the licence onto the dependency it belongs to.
+#
+# WHY A RULE RATHER THAN A JOIN THE CONSUMER WALKS. An aggregate producer gathers ONE hop from its
+# anchor — `(a)-[:via]->(t)` — and renders each neighbour with that neighbour's own properties. The
+# licence is two hops out, on its own node, so a reducer collecting a release's dependencies cannot
+# see it. This rule copies it onto the dependency, which is exactly the shape a downstream consumer
+# needs and exactly the kind of flattening a derived property is for.
+#
+# THE FIRST LICENCE, not all of them. Dual licensing is real — `MIT OR Apache-2.0` means you may
+# choose — and a single string cannot hold a choice honestly. `LicenceExposure` reports the full
+# list; this carries the first so a per-item line reads, and says so here rather than pretending.
+#
+# `(none recorded)` IS NOT PERMISSION. deps.dev knowing of no licence for a version is the most
+# restrictive case there is, not the least, and the reviews downstream are told to treat it so.
+
+name: npm/dependency-licence
+derives: LicensedDependency
+description: >-
+  A dependency with its resolved version's licence copied onto it, so a one-hop consumer can read
+  both together. The first licence only where a package is dual-licensed; `(none recorded)` where
+  deps.dev knows of none, which is a restriction rather than a permission.
+properties:
+  licence:
+    type: string
+    description: "SPDX identifier of the resolved version, or `(none recorded)`. The FIRST where several are offered."
+rules:
+  - derive: "(d:LicensedDependency {licence: l})"
+    from: |
+      MATCH (d:NpmDependency)-[:HAS_LICENCE]->(lic:NpmLicence)
+      WITH d, coalesce(head(lic.licences), '(none recorded)') AS l

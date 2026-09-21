@@ -1,0 +1,179 @@
+# THE DEPENDENCY GRAPH.
+#
+#   NpmRelease    ──HAS_DEPENDENCY──▶ NpmDependency   direct deps of the latest version
+#   NpmDependency ──HAS_DEPENDENCY──▶ NpmDependency   and of each dependency, recursively
+#   NpmRelease    ──HAS_RESOLUTION──▶ NpmResolution   whether the graph resolved at all
+#
+# The self-join on NpmDependency is the point. Each hop is one small cached deps.dev call, so
+# the graph goes as deep as a query asks and no deeper, and a package shared by forty roots is
+# fetched once. `rules/` then closes the transitive relation over it, which is where depth,
+# propagation and provenance come from.
+#
+# WHY NOT JUST TAKE THE RESOLVED GRAPH. deps.dev returns the full closure in one call. Ingesting
+# it would be fewer calls and strictly worse: no reuse between roots, no per-hop provenance, and
+# no way to answer "why is this in my tree" except by re-reading a blob. See producers/dependencies.yml.
+
+# THIS DATA IS PUBLIC AND IS NOT DECLARED SO, which is worth writing down rather than leaving as an
+# omission. npm's registry and deps.dev are mirrored datasets, identical for every user and needing
+# no credential, so a `sources.yml` marking them `visibility: public` is correct on the merits and
+# would stop the engine partitioning identical registry rows per user. It is left undeclared until
+# the engine carrying embabel/me#1265 is the one this realm can assume: before that fix, declaring
+# it public removed the tenancy predicate that was the only thing binding the first dependency hop,
+# and the graph silently collapsed to one level. Confirmed public-safe with the fix (`axios` reads
+# 4 / 7 / 9 across three levels, `superagent` 9 / 11 / 14); declare it then, and delete this note.
+
+- name: NpmDependency
+  description: >-
+    One package another package depends on DIRECTLY, as deps.dev resolved it. Reached from
+    NpmRelease via HAS_DEPENDENCY, and from another NpmDependency by the same edge — so a
+    query walks as many hops as it asks for.
+
+    `relation` is always `DIRECT` here by construction: this realm ingests only direct edges and
+    derives the transitive ones (rules/transitive-dependencies.yml), rather than accepting
+    deps.dev's precomputed closure. A dependency that is both direct and indirect somewhere in
+    the wider graph is marked DIRECT by deps.dev, so this is the true direct set.
+
+    THE VERSION IS THE RESOLVED ONE, not the declared range. deps.dev answers what an install
+    would actually get at resolution time; the `^1.1.0` in someone's package.json is a
+    requirement, and requirements are a different endpoint. Two roots can therefore reach the
+    same package at different versions, and they are different nodes here, correctly.
+
+    NO IDENTITY PROPERTY, deliberately. A dependency row is unique only as a COMBINATION — which
+    parent asked, which package came back, at which version — and no single field carries that.
+    An engine-minted deterministic id per distinct row is the honest shape (realm-spec §5.1):
+    identical rows merge, distinct rows never collide. Declaring `name` as the identity would
+    collapse every parent's copy of `lodash` into one node whose `key` was whichever fetch wrote
+    last, which is exactly the failure that makes a dependency count wrong without looking wrong.
+  properties:
+    key:
+      description: >-
+        The `name|version` composite this row was fetched for — the PARENT, not this package.
+        It is what makes a row's lineage readable, and what distinguishes two parents' copies of
+        the same dependency.
+    name: "The dependency's npm package name. Scoped names arrive as `@scope/name`."
+    version: "The exact version deps.dev resolved to, not the declared range."
+    relation: "`DIRECT` by construction — see the note above."
+    bundled: "True when the dependency ships inside the parent's tarball rather than being installed separately."
+  virtualJoins:
+    - anchorLabel: NpmRelease
+      relationship: HAS_DEPENDENCY
+      # The deps.dev call needs a name AND a version, and NpmRelease is the only type carrying
+      # both: `key` is the package name it was fetched for, `version` what npm resolves today.
+      producerKeyFields: [key, version]
+      recordKeyField: key
+      producer: npmDirectDependencies
+      description: >-
+        What the latest published version depends on directly:
+        `MATCH (p:NpmPackage)-[:HAS_LATEST_RELEASE]->(r:NpmRelease)-[:HAS_DEPENDENCY]->(d:NpmDependency)`.
+    - anchorLabel: NpmDependency
+      relationship: HAS_DEPENDENCY
+      # The recursive hop. A dependency carries its own name and resolved version, so it is a
+      # valid anchor for the same producer — and that is the whole dependency graph.
+      producerKeyFields: [name, version]
+      recordKeyField: key
+      producer: npmDirectDependencies
+      maxAnchors: 60
+      description: >-
+        What a dependency itself depends on — chain the edge to go deeper:
+        `(r:NpmRelease)-[:HAS_DEPENDENCY]->(:NpmDependency)-[:HAS_DEPENDENCY]->(d:NpmDependency)`.
+
+        DEPTH IS THE QUERY'S, on an engine carrying embabel/me#1265. Before that fix a third
+        chained hop refused with "the anchor (:NpmDependency) could not be bound", because every
+        hop of a self-join shares one producer and the probe excludes a fetch group's own targets
+        from the prefix it binds anchors with. Raising maxAnchors never helped; it was not a
+        breadth cap. The shipped views here still chain TWO hops, which works on either engine and
+        keeps the read to a few dozen small cached calls — and they report how many packages they
+        reached, because a consumer must be able to tell a small surface from a shallow look.
+
+- name: NpmResolution
+  description: >-
+    Whether deps.dev could resolve this version's dependency graph at all, and what stopped it if
+    not. Reached from NpmRelease via HAS_RESOLUTION.
+
+    THIS TYPE EXISTS BECAUSE OF ONE FAILURE MODE, and it is the dangerous kind. deps.dev answers
+    HTTP 200 with an empty node list and the reason in a `resolverError` string when resolution
+    fails — so "this package has no dependencies" and "we could not work out its dependencies"
+    look identical from the dependency rows alone. The first is a fact a security review would
+    act on. Check this type before reading an empty dependency set as an answer.
+
+    A blank `resolverError` means the graph resolved. Non-blank means the node list is incomplete
+    or empty and must not be reported as a finding. The text is meant for humans and has no
+    defined format — test it for emptiness, never parse it.
+  properties:
+    key:
+      description: "The `name|version` composite this verdict is about. Identity — one verdict per version."
+      metadata:
+        identity: "true"
+    resolverError: "Blank when the graph resolved. Otherwise deps.dev's own words on what stopped it, e.g. `syn/^2.0.81: no candidates found`."
+  virtualJoins:
+    - anchorLabel: NpmRelease
+      relationship: HAS_RESOLUTION
+      producerKeyFields: [key, version]
+      recordKeyField: key
+      producer: npmResolution
+      description: >-
+        The resolver's verdict on a version's graph:
+        `MATCH (r:NpmRelease)-[:HAS_RESOLUTION]->(v:NpmResolution) WHERE v.resolverError <> ''`.
+
+- name: NpmLicence
+  description: >-
+    The licence of one resolved dependency version, as deps.dev records it. Reached from
+    NpmDependency via HAS_LICENCE.
+
+    THE RESOLVED VERSION'S LICENCE, which is the only one that binds you. A range in somebody's
+    package.json is a requirement; what you installed is an obligation.
+
+    `licences` IS A LIST because dual licensing is real: `MIT OR Apache-2.0` means you may choose,
+    and collapsing it to one element would invent a constraint. An EMPTY list means deps.dev knows
+    of no licence for this version, which is not the same as "no licence applies" — an unlicensed
+    package is the most restrictive case there is, not the least, and it is the one a review should
+    look at first.
+  properties:
+    key:
+      description: "The `name|version` this licence belongs to. Identity — one record per version."
+      metadata:
+        identity: "true"
+    licences: "SPDX identifiers for the resolved version, as a list. Empty means none is recorded."
+  virtualJoins:
+    - anchorLabel: NpmDependency
+      relationship: HAS_LICENCE
+      producerKeyFields: [name, version]
+      recordKeyField: key
+      producer: npmVersionLicence
+      maxAnchors: 200
+      maxFanoutTotal: 2000
+      description: >-
+        What a dependency is licensed under:
+        `(d:NpmDependency)-[:HAS_LICENCE]->(l:NpmLicence)`.
+
+# THE MODEL JUDGEMENT. One node per release, carrying an `assessment` written by a model, and its
+# description says so — a reader must never have to guess which numbers are the register's and
+# which are an opinion about them.
+
+- name: ProportionReview
+  description: >-
+    A MODEL'S READING of whether each direct dependency's job is proportionate to the position it
+    occupies — the mismatch that lets a large publish surface hide behind a small package. Reached
+    from NpmRelease via HAS_PROPORTION_REVIEW.
+
+    A JUDGEMENT, NOT A REGISTER FACT. It draws on the model's own knowledge of what these packages
+    do, which the registry does not supply and which can be wrong; the prompt tells it to say so
+    where it is unsure. It is told to judge proportion and never people, and says nothing about any
+    maintainer.
+  properties:
+    reviewId:
+      description: "Engine-minted id for this reading. Identity — one node per release per band."
+      metadata:
+        identity: "true"
+    anchorKey: "The release this reading is about — the link back to the anchor."
+    assessment: "The model's reading, in at most 130 words."
+  virtualJoins:
+    - anchorLabel: NpmRelease
+      relationship: HAS_PROPORTION_REVIEW
+      keyField: key
+      recordKeyField: anchorKey
+      producer: proportionReview
+      maxAnchors: 5
+      description: >-
+        A proportionality reading for a release:
+        `(r:NpmRelease)-[:HAS_PROPORTION_REVIEW]->(v:ProportionReview)`. Costs one model call.

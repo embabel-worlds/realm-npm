@@ -1,0 +1,106 @@
+# THE PUBLISH-AUTHORITY GRAPH.
+#
+#   NpmPackage    ──MAINTAINED_BY──▶ NpmMaintainer    who can publish your root
+#   NpmDependency ──MAINTAINED_BY──▶ NpmMaintainer    who can publish anything beneath it
+#
+# ONE NODE PER ACCOUNT, and that is the whole reason this type is worth having. `account` is the
+# identity, so an account that maintains forty of the packages in your tree is ONE node with forty
+# edges — and the question "how much of my install does this single person control" becomes a
+# degree count rather than a report. Model it per package instead and the account fragments into
+# forty unrelated rows that no query can add up.
+#
+# Same shape as realm-oss-health's ScorecardCheck, and for the same reason: the entity is global,
+# the RELATIONSHIP is what is local to your tree.
+
+- name: NpmMaintainer
+  description: >-
+    An npm account entitled to publish a new version of a package. Reached from NpmPackage and
+    from NpmDependency via MAINTAINED_BY, so the same account node is shared by every package in
+    the tree it can publish.
+
+    NOT A FINDING, and the realm will keep saying so. Holding publish rights is what a maintainer
+    is; the overwhelming majority of npm packages have exactly one account and most of them are
+    well looked after. What this type measures is SURFACE — how many distinct accounts would have
+    to stay uncompromised for your install to stay honest — and surface is a fact about your
+    dependency choices rather than an accusation about anybody's conduct.
+
+    WHAT IS NOT PUBLISHED, and therefore cannot be inferred here: whether an account has
+    two-factor authentication, whether it is a person or a machine identity, whether it belongs to
+    an organisation, and when it was granted rights. npm publishes none of those. This realm can
+    describe the shape of the surface and never the strength of the lock.
+
+    THE LIST IS AS THE REGISTRY REPORTS IT TODAY. Accounts added or removed since you installed do
+    not appear as changes; there is only a current answer.
+  properties:
+    account:
+      description: >-
+        The npm account name, e.g. `sindresorhus`. Identity — account names are unique across the
+        registry, so one node serves every package the account can publish.
+      metadata:
+        identity: "true"
+    key: >-
+      The package name this row was fetched for. A JOIN LINK, not a fact about the account: the
+      node is shared, so `key` is whichever package wrote last. Read it from the MAINTAINED_BY
+      relationship, never from the node — the edge is per package and the node is not.
+  virtualJoins:
+    - anchorLabel: NpmPackage
+      relationship: MAINTAINED_BY
+      keyField: name
+      recordKeyField: key
+      producer: npmMaintainers
+      description: >-
+        Who can publish a package you track:
+        `MATCH (p:NpmPackage {name: 'express'})-[:MAINTAINED_BY]->(a:NpmMaintainer)`.
+    - anchorLabel: NpmDependency
+      relationship: MAINTAINED_BY
+      # A dependency carries the package name it resolved to, which is the only key the registry
+      # needs. Version plays no part: publish rights are held over a PACKAGE, not over a release.
+      keyField: name
+      recordKeyField: key
+      producer: npmMaintainers
+      # One registry call per distinct package in the tree. A tree of seventy packages costs
+      # seventy small cached calls, and the cache is shared with packageLatest.
+      maxAnchors: 200
+      maxFanoutTotal: 2000
+      description: >-
+        Who can publish something in the tree:
+        `(r:NpmRelease)-[:HAS_DEPENDENCY*1..3]->(d:NpmDependency)-[:MAINTAINED_BY]->(a:NpmMaintainer)`.
+
+- name: NpmBuildProvenance
+  description: >-
+    Whether a dependency's published tarball can be traced to a build, and who ran the publish.
+    Reached from NpmDependency via HAS_PROVENANCE.
+
+    PRESENCE IS THE FACT. `provenanceUrl` exists when npm recorded a SLSA attestation, meaning this
+    tarball was built by a verifiable workflow from a named repository rather than uploaded from
+    somebody's machine. That is the strongest single thing this realm can read about a package, and
+    unlike every count beside it, it is not a proxy.
+
+    AN ABSENCE IS NOT A FINDING, and that matters more here than anywhere else in the realm.
+    Provenance is recent, opt-in, and needs a supported CI; the overwhelming majority of the registry
+    predates it, including packages maintained impeccably for a decade. "No attestation" means npm
+    recorded none. It does not mean the package was published carelessly, and a view that ranked
+    packages by its absence would be ranking them by age.
+
+    WHAT IT DOES NOT PROVE. That the source is good, that the workflow is trustworthy, or that the
+    named repository is one you would trust — only that the bytes came from a build somebody can
+    inspect rather than from an upload nobody can.
+  properties:
+    key:
+      description: "The package name this was read for. Identity — one record per package."
+      metadata:
+        identity: "true"
+    provenanceUrl: "The attestation bundle URL, when npm recorded one. Absent means none was recorded."
+    publishedBy: "The account that ran the publish. A CI identity means the credential lives in a workflow rather than on a laptop."
+    version: "The version read."
+  virtualJoins:
+    - anchorLabel: NpmDependency
+      relationship: HAS_PROVENANCE
+      keyField: name
+      recordKeyField: key
+      producer: npmDependencyProvenance
+      maxAnchors: 200
+      maxFanoutTotal: 2000
+      description: >-
+        Whether a dependency's release is attested:
+        `(d:NpmDependency)-[:HAS_PROVENANCE]->(p:NpmBuildProvenance)`.

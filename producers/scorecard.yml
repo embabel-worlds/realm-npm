@@ -1,0 +1,73 @@
+# HOW THE PROJECT IS RUN, beside who may publish it.
+#
+# The rest of this realm counts parties. This reads the OpenSSF Scorecard for the repository a
+# package says it comes from — whether changes are reviewed, whether workflows are dangerous,
+# whether the project is maintained at all — and it is the answer to the question the surface
+# numbers raise and cannot settle: the surface is large, so is anyone minding it?
+#
+# THE REPOSITORY KEY IS NOT PARSED OUT OF A URL. deps.dev already resolves a version to its related
+# projects, with `relationType: SOURCE_REPO` and the key in the host-qualified form the project
+# endpoint indexes on. Taking it from there rather than stripping `git+` and `.git` off a declared
+# URL means no guessing, and it carries `relationProvenance` — deps.dev's own record of HOW the
+# package-to-repository link was established — which is a fact worth having precisely because it is
+# usually `UNVERIFIED_METADATA`.
+
+# The SOURCE_REPO relation only, as its own record.
+- name: npmSourceProject
+  kind: remote
+  operation: packageVersion
+  records: "$.relatedProjects[?(@.relationType=='SOURCE_REPO')]"
+  args:
+    system: NPM
+  keyArgs: [name, version]
+  keySplit: "|"
+  echoKeyAs: forRelease
+  maxKeysPerCall: 1
+  batchSafe: false
+  project:
+    projectKey: projectKey.id
+    relationProvenance: relationProvenance
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
+
+# The headline scorecard for that repository.
+- name: projectScorecard
+  kind: remote
+  operation: projectInfo
+  records: "$"
+  keyArgs: [projectKey]
+  # A REPOSITORY KEY IS PATH-SHAPED and the default key separator is a slash, so
+  # `github.com/expressjs/express` was cut to `github.com` and deps.dev answered 400 for a project
+  # nobody asked about. One key field never needs splitting; any separator the key cannot contain
+  # is correct.
+  keySplit: "\u001F"
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  project:
+    overallScore: scorecard.overallScore
+    scorecardDate: scorecard.date
+    scannedCommit: scorecard.repository.commit
+    stars: starsCount
+    openIssues: openIssuesCount
+    licence: license
+    summary: description
+  # Scorecard is recomputed periodically upstream, so a day is fresh and costs one call per repo.
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
+
+# The individual checks — where the diagnosis is.
+- name: projectScorecardChecks
+  kind: remote
+  operation: projectInfo
+  records: "$.scorecard.checks[*]"
+  keyArgs: [projectKey]
+  # A REPOSITORY KEY IS PATH-SHAPED and the default key separator is a slash, so
+  # `github.com/expressjs/express` was cut to `github.com` and deps.dev answered 400 for a project
+  # nobody asked about. One key field never needs splitting; any separator the key cannot contain
+  # is correct.
+  keySplit: "\u001F"
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  project:
+    name: name
+    score: score
+    reason: reason
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }

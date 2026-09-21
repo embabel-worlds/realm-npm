@@ -1,0 +1,337 @@
+# WHO CAN PUT CODE IN YOUR BUILD — the publish-authority views.
+#
+# EVERY VIEW HERE FETCHES FIRST AND CONCLUDES SECOND, and the leading MATCHes are not filters: they
+# are the materialisation. A rule body cannot fetch, so an unanchored rule set concludes over an
+# empty graph and answers nothing — truthfully, and uselessly.
+#
+# THE TREE IS WALKED BY EXPLICIT CHAINED HOPS, never by a variable-length pattern. `*1..2` MATCHES
+# what is already present; it does not drive the producer, so on a cold tree it returns the first
+# hop and stops. The chained OPTIONAL MATCH below pulls the second level in, and only then is
+# variable length the right tool — for the rules, which read warm nodes and never fetch.
+#
+# EVERY HOP IS OPTIONAL, and that is about honesty rather than defensiveness. A package with no
+# dependencies at all is a correct and common answer — `lodash` and `chalk` both have none — and a
+# mandatory first hop turns that into zero rows and an error, which reads as "we could not look"
+# rather than "there is nothing beneath it".
+#
+# ACCOUNTS ARE SEEDED FROM THE DEPENDENCIES, never from the root package. Binding NpmMaintainer off
+# the root first marks that label materialised, and the fan-out to the tree's accounts becomes a
+# semijoin against what is already present — one account back, no error, and a trust surface that
+# looks reassuringly small because nothing was read.
+#
+# DEPTH IS TWO AND THAT IS A CHOICE THE VIEWS REPORT. Two hops covers a large majority of the
+# distinct packages in a typical npm tree while keeping the read to a few dozen small cached calls;
+# a third multiplies them. `packagesRead` is on every headline row for exactly this reason — so a
+# reader can tell a genuinely small surface from a shallow look, which is the distinction the
+# established tools collapse.
+
+- name: TrustSurface
+  description: >-
+    The publish-authority surface of one npm package's DEPENDENCY TREE: how much of it was read, how
+    many distinct accounts can publish into it, and how many are the only account able to publish
+    something you would install.
+
+    THE PACKAGE'S OWN MAINTAINERS ARE NOT HERE, and that is an engine constraint rather than a
+    choice. Binding the root's accounts in this query plans that join first, which marks the label
+    materialised and turns the fan-out across the tree into a semijoin that fetches nobody — the
+    whole surface collapses to the root's handful. `PackageMaintainers` answers the other half, and
+    a caller that wants both asks for both. `lodash` has no dependencies and three maintainers: this
+    view correctly reports a surface of zero, and that view reports the three.
+
+    THIS IS NOT A SECURITY SCORE AND THERE IS DELIBERATELY NO SINGLE NUMBER. What it measures is
+    SHAPE — how many credentials would have to stay uncompromised for this install to stay honest.
+
+    WHAT IS NOT PUBLISHED, and therefore is not here: whether any account has two-factor
+    authentication, whether it is a person or a machine, and who held the rights when you installed.
+
+    LOCKFILES MATTER TO HOW YOU READ IT. An install pinned with integrity hashes does not pick up a
+    new publish until you resolve again, so this describes exposure at UPDATE and SELECTION time
+    rather than a door standing open right now.
+
+    READ `packagesRead` BEFORE ANYTHING ELSE. Every other number here is bounded by it.
+  params:
+    package:
+      type: string
+      default: "express"
+      description: "Exact npm package name, e.g. `express` or `@babel/core`. A wrong name is not an error; it is a reading that never arrives."
+  cypher: |
+    MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+    OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]->(d1:NpmDependency)
+    OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]->(d2:NpmDependency)
+    WITH r, count(DISTINCT d1.name) AS direct, count(DISTINCT d2.name) AS indirect
+    OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]->(dd:NpmDependency)-[:MAINTAINED_BY]->(a:NpmMaintainer)
+    WITH r, direct, indirect,
+         count(DISTINCT dd.name) AS packagesWithRightsRead,
+         count(DISTINCT a.account) AS accounts
+    OPTIONAL MATCH (sole:NpmMaintainer)-[s:SOLE_CONTROL]->(:NpmPackage)
+    WITH r, direct, indirect, packagesWithRightsRead, accounts,
+         count(DISTINCT sole.account) AS soleAccounts,
+         coalesce(sum(s.packages), 0) AS packagesWithOnePublisher
+    RETURN r.version                AS version,
+           r.license                AS license,
+           r.publishedBy            AS latestPublishedBy,
+           r.repository             AS declaredRepository,
+           direct                   AS directDependencies,
+           direct + indirect        AS packagesRead,
+           packagesWithRightsRead   AS packagesWithRightsRead,
+           accounts                 AS accountsThatCanPublish,
+           soleAccounts             AS accountsThatAreSolePublisher,
+           packagesWithOnePublisher AS packagesWithOnePublisher
+
+- name: PackageMaintainers
+  description: >-
+    The accounts entitled to publish THIS package — not its dependencies. The other half of the
+    surface, and a separate view for a reason the engine imposes: asking for both in one query plans
+    this join first and starves the fan-out across the tree.
+
+    These are the accounts a compromise would reach without any dependency being involved, which
+    makes them the shortest path into an install. One account here is the npm norm and not a defect.
+  params:
+    package:
+      type: string
+      default: "lodash"
+      description: "Exact npm package name."
+  cypher: |
+    MATCH (p:NpmPackage {name: $package})-[:MAINTAINED_BY]->(a:NpmMaintainer)
+    RETURN DISTINCT a.account                     AS account,
+           'https://www.npmjs.com/~' + a.account  AS profileUrl
+    ORDER BY account
+
+- name: PublishAuthority
+  description: >-
+    Every npm account that can publish something in this package's DEPENDENCY TREE, ordered by how
+    much of the tree it reaches. The package's own maintainers are in `PackageMaintainers` — see the
+    note there for why the two cannot be one query.
+
+    NOT A FINDING, AND THE TOP OF THIS LIST IS USUALLY A GOOD THING. One maintainer looking after a
+    family of small, focused modules produces exactly this shape, and is usually the reason those
+    modules work. What the numbers describe is how much of your tree fails TOGETHER.
+
+    npm publishes no two-factor status, so nothing here says whether any account is well protected.
+  params:
+    package:
+      type: string
+      default: "express"
+      description: "Exact npm package name."
+    minPackages:
+      type: int
+      default: 1
+      description: "Report accounts reaching at least this many packages. Raise it to see only the concentrations."
+  cypher: |
+    MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+    OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]->(d1:NpmDependency)
+    OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]->(d2:NpmDependency)
+    WITH count(d1) AS materialised
+    OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]->(:NpmDependency)-[:MAINTAINED_BY]->(a0:NpmMaintainer)
+    WITH materialised, count(a0) AS rightsRead
+    MATCH (a:NpmMaintainer)-[c:CONTROLS]->(root:NpmPackage)
+    WHERE c.packages >= $minPackages
+    OPTIONAL MATCH (a)-[s:SOLE_CONTROL]->(root)
+    RETURN a.account                  AS account,
+           c.packages                 AS canPublish,
+           coalesce(s.packages, 0)    AS solePublisherOf,
+           'https://www.npmjs.com/~' + a.account AS profileUrl
+    ORDER BY canPublish DESC, solePublisherOf DESC, account
+
+- name: SinglePublisherDependencies
+  description: >-
+    The packages in this tree that exactly one npm account is entitled to publish, with that
+    account named.
+
+    ONE MAINTAINER IS THE NPM NORM. Most packages in the registry have a single maintainer and most
+    of them are well looked after; a great deal of the ecosystem's best work is one person's. What
+    this list marks is the absence of a second pair of hands, which matters when you are deciding
+    what to vendor, pin or replace — not when you are deciding whom to trust.
+
+    Counts ACCOUNTS, not people: two accounts can be one person, and one account can be a team
+    credential or a CI identity. npm publishes nothing that tells them apart.
+  params:
+    package:
+      type: string
+      default: "express"
+      description: "Exact npm package name."
+  cypher: |
+    MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+    OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]->(d1:NpmDependency)
+    OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]->(d2:NpmDependency)
+    WITH count(d1) AS materialised
+    OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]->(:NpmDependency)-[:MAINTAINED_BY]->(a0:NpmMaintainer)
+    WITH materialised, count(a0) AS rightsRead
+    MATCH (s:SingleAccountPackage)
+    RETURN DISTINCT s.name    AS package,
+           s.version          AS resolvedVersion,
+           s.soleAccount      AS soleAccount,
+           'https://www.npmjs.com/package/' + s.name AS packageUrl
+    ORDER BY package
+
+- name: DirectDependencies
+  description: >-
+    This package's direct dependencies, as deps.dev resolved them, with the licence and the account
+    that actually published each one.
+
+    `publishedBy` is who pushed the bytes, which is a different question from who is allowed to: a
+    CI identity here means the credential lives in a workflow rather than on somebody's laptop.
+    Absent on older releases, and absence means the registry did not record it.
+  params:
+    package:
+      type: string
+      default: "express"
+      description: "Exact npm package name."
+  cypher: |
+    MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)-[:HAS_DEPENDENCY]->(d:NpmDependency)
+    RETURN DISTINCT d.name    AS package,
+           d.version          AS resolvedVersion,
+           d.bundled          AS bundled,
+           'https://www.npmjs.com/package/' + d.name AS packageUrl
+    ORDER BY package
+
+- name: SurfaceContributors
+  description: >-
+    Which dependency brings the most publish accounts into this tree, and how many of them arrive
+    ONLY through it. The answer is routinely one package nobody thinks about: `express` reaches 79
+    accounts, and 55 of them arrive through `ms`, a utility that converts `"2 days"` to a number.
+
+    WHO CAN ACT ON A ROW DEPENDS ON `direct`, and the honest answer is usually "not you". A DIRECT
+    dependency is one you chose and can drop, swap or vendor. An INDIRECT one was chosen for you: in
+    `express`'s case `ms` is indirect, so only express's own maintainers can remove it. `exclusive`
+    says what removing it WOULD buy whoever is in a position to — accounts reachable through no
+    other package in the tree — which for a consumer is an argument to make upstream rather than a
+    change to make locally.
+
+    A LONG MAINTAINER LIST IS NOT A DEFECT. A package inside a large organisation's npm scope
+    inherits that organisation's publishers, most of whom will never touch it. That is how npm
+    scopes work, and it is exactly why counting them per package is worth doing: the number is
+    invisible until something adds it up, and nothing else does.
+  params:
+    package:
+      type: string
+      default: "express"
+      description: "Exact npm package name."
+  cypher: |
+    MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+    OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]->(d1:NpmDependency)
+    OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]->(d2:NpmDependency)
+    WITH count(d1) AS materialised
+    OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]->(dd:NpmDependency)-[:MAINTAINED_BY]->(a:NpmMaintainer)
+    WITH a.account AS account, collect(DISTINCT dd.name) AS viaPackages
+    UNWIND viaPackages AS pkg
+    WITH pkg, account, size(viaPackages) AS packagesForAccount
+    WITH pkg,
+         count(DISTINCT account) AS accounts,
+         count(DISTINCT CASE WHEN packagesForAccount = 1 THEN account END) AS exclusive
+    // DIRECT or not decides who can act on the row, so it is projected rather than left implied.
+    OPTIONAL MATCH (:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]->(:NpmRelease)-[:HAS_DEPENDENCY]->(dir:NpmDependency)
+      WHERE dir.name = pkg
+    RETURN pkg                                    AS package,
+           accounts                               AS accounts,
+           exclusive                              AS exclusive,
+           count(dir) > 0                         AS direct,
+           'https://www.npmjs.com/package/' + pkg AS packageUrl
+    ORDER BY accounts DESC, package
+
+- name: LicenceExposure
+  description: >-
+    Every licence in this package's dependency tree, how many packages carry it, and an example of
+    each. The obligations you acquired by installing, as opposed to the one the package itself
+    advertises.
+
+    THE RESOLVED VERSION'S LICENCE IS THE ONE THAT BINDS YOU. A range in somebody's package.json is
+    a requirement; what npm actually installed is an obligation. `packages` counts distinct package
+    names, so a licence reached by several paths is counted once.
+
+    A LIST, NOT A VERDICT. This realm does not decide which licences are acceptable, because that
+    depends on what you are shipping and how — the same licence is unremarkable in a server and
+    a serious question in redistributed client code, and none of that is knowable from a registry.
+    What it does is make the set visible, including the entries nobody expected.
+
+    AN EMPTY LICENCE IS THE ONE TO READ FIRST. It is reported as `(none recorded)`, and it means
+    deps.dev knows of no licence for that version — which is not permission. An unlicensed package
+    is the most restrictive case there is, not the least.
+  params:
+    package:
+      type: string
+      default: "eslint"
+      description: "Exact npm package name."
+  cypher: |
+    MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+    OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]->(d1:NpmDependency)
+    OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]->(d2:NpmDependency)
+    WITH count(d1) AS materialised
+    OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]->(dl:NpmDependency)-[:HAS_LICENCE]->(lic:NpmLicence)
+    WITH dl, CASE WHEN size(coalesce(lic.licences, [])) = 0 THEN ['(none recorded)'] ELSE lic.licences END AS ls
+    UNWIND ls AS licence
+    RETURN licence                                   AS licence,
+           count(DISTINCT dl.name)                   AS packages,
+           head(collect(DISTINCT dl.name))           AS example,
+           'https://www.npmjs.com/package/' + head(collect(DISTINCT dl.name)) AS exampleUrl
+    ORDER BY packages DESC, licence
+
+- name: ProportionReading
+  description: >-
+    A MODEL'S READING of this package's direct dependencies: which ones do a trivial job relative to
+    the position they occupy, and which a package of this kind would not be expected to need at all.
+    That mismatch is where a large publish surface hides behind a small package.
+
+    THIS IS A JUDGEMENT, NOT A REGISTER FACT, and it is the only thing on this realm that is. Every
+    other view reports what npm and deps.dev published and can be checked line by line. This draws
+    on the model's own knowledge of what these packages do, which the registry does not supply and
+    which can be wrong; the prompt tells it to say so where it is unsure, and to judge proportion
+    rather than people.
+
+    COSTS ONE MODEL CALL per release, on the world's `vc_execution` role, cached for a day. If the
+    world has no model configured, or its provider refuses, this returns nothing — and at present
+    it returns nothing SILENTLY, which is embabel/me#1271.
+  params:
+    package:
+      type: string
+      default: "express"
+      description: "Exact npm package name."
+  cypher: |
+    MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+    MATCH (r)-[:HAS_DEPENDENCY]->(d:NpmDependency)
+    WITH r, count(d) AS dependenciesRead
+    MATCH (r)-[:HAS_PROPORTION_REVIEW]->(v:ProportionReview)
+    RETURN v.assessment      AS reading,
+           dependenciesRead  AS dependenciesRead
+
+- name: BuildProvenance
+  description: >-
+    How much of this install can be traced back to a build. npm records a SLSA attestation when a
+    version was produced by a verifiable workflow from a named repository, rather than uploaded from
+    somebody's machine.
+
+    THE STRONGEST FACT IN THIS REALM, and the only one that is not a proxy. Every other figure here
+    counts something — accounts, packages, licences — and asks you to read risk into the count.
+    This one says whether the bytes you install can be traced to a build anyone can inspect.
+
+    AN ABSENCE IS NOT A FINDING and must never be read as one. Provenance is recent, opt-in and
+    needs supported CI, so most of the registry predates it — including packages looked after
+    impeccably for a decade. Ranking packages by its absence would be ranking them by age. What the
+    figure is good for is the opposite direction: the attested share is a floor on how much of your
+    tree you could verify today if you wanted to.
+
+    `publishedBy` beside it is the softer companion signal: a CI identity means the publishing
+    credential lives in a workflow rather than on a laptop. Softer because a name is not proof, and
+    an account can be called anything.
+  params:
+    package:
+      type: string
+      default: "express"
+      description: "Exact npm package name."
+  cypher: |
+    MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+    OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]->(d1:NpmDependency)
+    OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]->(d2:NpmDependency)
+    WITH count(d1) AS materialised
+    OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]->(d:NpmDependency)-[:HAS_PROVENANCE]->(bp:NpmBuildProvenance)
+    // DISTINCT ON NAME: the graph reaches one package from several parents, so it is several nodes.
+    // Counting rows would count how many ways the tree reaches a package and call it coverage.
+    WITH d.name AS package,
+         head(collect(bp.provenanceUrl)) AS attestation,
+         head(collect(bp.publishedBy))   AS publishedBy
+    WHERE package IS NOT NULL
+    RETURN package                                          AS package,
+           attestation IS NOT NULL                          AS attested,
+           publishedBy                                      AS publishedBy,
+           'https://www.npmjs.com/package/' + package       AS packageUrl
+    ORDER BY attested DESC, package

@@ -1,0 +1,624 @@
+<!--
+  WHO CAN PUBLISH INTO YOUR BUILD.
+
+  The design argument, because it is the whole app. Every established dependency tool answers
+  "what is wrong with this package" — advisories, scorecards, a number out of ten. That question
+  is well served and this app does not compete with it. The question nobody answers is "whose
+  credentials is my install standing on", and the registry publishes everything needed to answer
+  it: maintainers per package, the account that pushed each release, and a resolvable dependency
+  graph. What is missing is the JOIN, which is a conclusion rather than a lookup.
+
+  THREE DELIBERATE REFUSALS, each aimed at a failure mode in the tools this sits beside.
+
+  1. NO SCORE. Not out of ten, not out of a hundred, not a letter. A composite invites the reader
+     to stop reading, and the number would be ours rather than the registry's. What is shown is
+     counted facts and the arithmetic behind them.
+  2. NO PASS MARK, therefore no green. Nothing here is a finding, so nothing here gets a tick. The
+     palette runs neutral to amber and the only saturated colour marks CONCENTRATION, which is a
+     shape rather than a verdict.
+  3. COVERAGE IS IN THE HEADLINE, not a footnote. Every other tool renders "nothing found" and
+     "nothing looked at" identically. The strip under the title says how many packages were read
+     and how many were not, before any number that depends on it.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Who can publish into your build?</title>
+<meta name="description" content="npm publishes the maintainer list for every package and a resolvable dependency graph. Nobody joins the two. This shows which accounts can put code into a package's install, how much of the tree each one reaches, and how much of the tree was never read.">
+<link rel="stylesheet" href="/api/v1/apps-runtime/v1/theme.css">
+<script src="/api/v1/apps-runtime/v1/embabel.js"></script>
+<script type="application/embabel-app+json">
+{"version":1,"name":"publish-authority","requires":{"lenses":[],"views":["TrustSurface","PackageMaintainers","PublishAuthority","SinglePublisherDependencies","SurfaceContributors","ProportionReading","DirectDependencies"],"realms":["realm-npm"],"namespaces":[]}}
+</script>
+
+</head>
+<body>
+<style>
+  :root {
+    --ink: #16181d;
+    --ink-2: #4a5160;
+    --ink-3: #767e8e;
+    --rule: #e3e6ec;
+    --ground: #ffffff;
+    --ground-2: #f7f8fa;
+    --accent: #1f4ed8;
+    --warm: #b45309;
+    --warm-bg: #fdf6ec;
+    --hot: #b02a37;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .pa-wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 96px; }
+  h1 { font-size: 27px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 19px; margin: 40px 0 6px; letter-spacing: -0.01em; }
+  h3 { font-size: 15px; margin: 0 0 8px; }
+  .pa-lede { color: var(--ink-2); margin: 0 0 26px; max-width: 68ch; }
+  .pa-sub { color: var(--ink-2); margin: 0 0 14px; max-width: 74ch; font-size: 14px; }
+  code, .pa-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.93em; }
+
+  /* Search */
+  .pa-search { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .pa-search input {
+    flex: 1 1 260px; min-width: 0; padding: 11px 13px; font: inherit;
+    border: 1px solid var(--rule); border-radius: 8px; background: var(--ground);
+  }
+  .pa-search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  .pa-btn {
+    padding: 11px 18px; font: inherit; font-weight: 550; cursor: pointer;
+    border: 1px solid var(--ink); border-radius: 8px; background: var(--ink); color: #fff;
+  }
+  .pa-btn--quiet { background: var(--ground); color: var(--ink); border-color: var(--rule); font-weight: 450; }
+  .pa-examples { font-size: 13px; color: var(--ink-3); margin: 0 0 30px; }
+  .pa-examples button {
+    font: inherit; background: none; border: none; padding: 0 2px; cursor: pointer;
+    color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+  }
+
+  /* Identity */
+  .pa-id { border-top: 3px solid var(--ink); padding-top: 14px; margin-bottom: 4px; }
+  .pa-id h2 { margin: 0; font-size: 24px; }
+  .pa-facts { display: flex; flex-wrap: wrap; gap: 6px 20px; color: var(--ink-2); font-size: 13.5px; margin-top: 6px; }
+
+  /* Coverage strip — the differentiator, so it sits above every derived number. */
+  .pa-cov {
+    margin: 18px 0 8px; padding: 12px 14px; border-radius: 8px;
+    background: var(--ground-2); border: 1px solid var(--rule); font-size: 14px;
+  }
+  .pa-cov strong { font-weight: 600; }
+  .pa-cov-bar { display: flex; height: 7px; border-radius: 4px; overflow: hidden; margin: 10px 0 8px; background: #e7eaf0; }
+  .pa-cov-bar i { display: block; height: 100%; }
+  .pa-cov-read { background: var(--accent); }
+  .pa-cov-unread { background: #d8b36a; }
+  .pa-cov-key { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); }
+  .pa-cov-key span::before {
+    content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+    margin-right: 6px; vertical-align: baseline;
+  }
+  .pa-key-read::before { background: var(--accent); }
+  .pa-key-unread::before { background: #d8b36a; }
+
+  /* Parallel facts — no composite, by design. */
+  .pa-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 18px 0 4px; }
+  .pa-tile { border: 1px solid var(--rule); border-radius: 10px; padding: 14px 15px; background: var(--ground); }
+  .pa-tile b { display: block; font-size: 30px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+  .pa-tile span { display: block; color: var(--ink-2); font-size: 13px; margin-top: 4px; }
+  .pa-tile em { display: block; color: var(--ink-3); font-size: 12px; font-style: normal; margin-top: 6px; }
+
+  /* Tables */
+  .pa-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; white-space: nowrap; }
+  td.pa-num, th.pa-num { text-align: right; padding-right: 16px; white-space: nowrap; }
+  tbody tr:hover { background: var(--ground-2); }
+  a { color: var(--accent); }
+
+  /* The one saturated element: reach, drawn to scale. */
+  .pa-reach { display: flex; align-items: center; gap: 9px; }
+  .pa-reach i { display: block; height: 9px; border-radius: 2px; background: var(--accent); min-width: 3px; }
+  .pa-reach.pa-sole i { background: var(--hot); }
+  .pa-sole-tag { color: var(--hot); font-size: 12.5px; white-space: nowrap; }
+
+  .pa-note { border-left: 3px solid #d8b36a; background: var(--warm-bg); padding: 12px 14px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 14px; }
+  .pa-note strong { color: var(--warm); }
+  .pa-empty { color: var(--ink-3); }
+  .pa-more { margin: 14px 0 0; }
+  .pa-reading { border: 1px solid var(--rule); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 14px 16px; background: var(--ground-2); }
+  .pa-reading p { margin: 0 0 10px; }
+  .pa-reading-foot { color: var(--ink-3); font-size: 12.5px; margin: 12px 0 0 !important; }
+  .pa-hidden { display: none; }
+  .pa-foot { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--rule); color: var(--ink-3); font-size: 13px; }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #eef1f6; --ink-2: #b3bbc9; --ink-3: #8b93a3; --rule: #2a2f3a;
+      --ground: #14161b; --ground-2: #1a1d24; --accent: #7aa2f7; --warm: #e0a45e;
+      --warm-bg: #241d12; --hot: #ef7a85;
+    }
+    :root:not([data-theme="light"]) .pa-cov-bar { background: #2a2f3a; }
+    :root:not([data-theme="light"]) .pa-btn { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+  }
+</style>
+
+<div class="pa-wrap">
+  <h1>Who can publish into your build?</h1>
+  <p class="pa-lede">
+    Every advisory tool tells you what is <em>wrong</em> with a package. None of them tells you whose
+    credentials your install is standing on. npm publishes the maintainer list for every package and
+    a resolvable dependency graph; nobody joins the two. This does.
+  </p>
+
+  <div class="pa-search">
+    <input id="pkg" type="search" placeholder="npm package name, e.g. express" autocomplete="off" spellcheck="false" aria-label="npm package name">
+    <button type="button" class="pa-btn" id="go">Read the tree</button>
+    <button type="button" class="pa-btn pa-btn--quiet" id="compare">Compare alternatives</button>
+  </div>
+  <p class="pa-examples">
+    Try
+    <button type="button" data-p="express">express</button>,
+    <button type="button" data-p="chalk">chalk</button>,
+    <button type="button" data-p="@babel/core">@babel/core</button>,
+    <button type="button" data-p="webpack">webpack</button>.
+    Reading a cold tree takes a few seconds; every package is one small cached call.
+  </p>
+
+  <embabel-operation-state id="compare-state"></embabel-operation-state>
+  <div class="pa-scroll" id="compare-out"></div>
+
+  <embabel-operation-state id="surface-state"></embabel-operation-state>
+
+  <section id="result" class="pa-hidden">
+    <div class="pa-id">
+      <h2 id="pkg-name"></h2>
+      <div class="pa-facts" id="pkg-facts"></div>
+    </div>
+
+    <div class="pa-cov" id="coverage"></div>
+
+    <div class="pa-tiles" id="tiles"></div>
+
+    <h2>What a model makes of the dependencies</h2>
+    <p class="pa-sub">
+      The only opinion on this page. Everything else is what npm and deps.dev published, checkable
+      line by line; this draws on a model's own knowledge of what these packages do, which the
+      registry does not supply and which can be wrong.
+    </p>
+    <embabel-operation-state id="reading-state"></embabel-operation-state>
+    <div id="reading"></div>
+
+    <h2>Where the surface comes from</h2>
+    <p class="pa-sub">
+      Dependencies ranked by how many publish accounts each one brings in, and how many arrive
+      <strong>only</strong> through it. This is the row you can act on: a surface you cannot reduce is
+      a fact of life, but most of it riding on one small package is a decision.
+    </p>
+    <embabel-operation-state id="contributors-state"></embabel-operation-state>
+    <div class="pa-scroll" id="contributors"></div>
+
+    <h2>Accounts that can publish into this tree</h2>
+    <p class="pa-sub">
+      Ordered by how much of the tree each one reaches. <strong>This is not a list of suspects.</strong>
+      One person looking after a family of small, focused modules produces exactly this shape, and is
+      usually the reason those modules work. What the numbers describe is how much of your tree would
+      fail together.
+    </p>
+    <embabel-operation-state id="authority-state"></embabel-operation-state>
+    <div class="pa-scroll" id="authority"></div>
+
+    <h2>Packages only one account can publish</h2>
+    <p class="pa-sub">
+      A single maintainer is the npm norm, not a defect. What this marks is the absence of a second
+      pair of hands: nobody else to notice an unexpected release, and nobody else able to publish a
+      fix if the account is lost.
+    </p>
+    <embabel-operation-state id="sole-state"></embabel-operation-state>
+    <div class="pa-scroll" id="sole"></div>
+
+    <div class="pa-note">
+      <strong>What this cannot tell you.</strong> npm publishes no two-factor status, and nothing that
+      distinguishes a person from a team credential or a CI identity. So this describes the
+      <em>shape</em> of the surface and never the strength of any lock on it. The maintainer list is
+      as the registry reports it today, which is not who held the rights when you installed. And a
+      package's declared repository is a claim the package makes about itself, unverified by npm.
+    </div>
+  </section>
+
+  <p class="pa-foot">
+    Reads npm's public registry and Google's deps.dev. No credentials, nothing stored about you.
+    Every figure links to the source it came from.
+  </p>
+</div>
+
+<script>
+(function () {
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function num(v) { return typeof v === 'number' ? v.toLocaleString('en-GB') : esc(v); }
+  function rowsOf(env) { var d = env && env.data; return Array.isArray(d) ? d : []; }
+  function link(href, text) {
+    return '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + esc(text) + '</a>';
+  }
+
+  /* One runner per panel: a runner cancels its own previous run, so sharing one across panels
+     that load together would make them cancel each other. */
+  function runnerFor(id) { return embabel.createRunner({ state: $(id) }); }
+  var runners = {
+    surface: runnerFor('surface-state'),
+    authority: runnerFor('authority-state'),
+    sole: runnerFor('sole-state'),
+    contributors: runnerFor('contributors-state'),
+    own: runnerFor('surface-state'),
+    reading: runnerFor('reading-state'),
+    compare: runnerFor('compare-state')
+  };
+
+  /* Strip the git+ prefix and .git suffix a package.json repository field carries, so the link is
+     clickable. Deliberately NOT normalised any further: the value is a claim the package makes
+     about itself, and rewriting it would hide how little it is worth. */
+  function repoHref(url) {
+    if (!url) return null;
+    var u = String(url).replace(/^git\+/, '').replace(/^git:\/\//, 'https://').replace(/\.git$/, '');
+    return /^https?:\/\//.test(u) ? u : null;
+  }
+
+  function renderIdentity(s) {
+    $('pkg-name').textContent = currentPackage;
+    var repo = repoHref(s.declaredRepository);
+    var facts = [];
+    if (s.version) facts.push('<span>version <span class="pa-mono">' + esc(s.version) + '</span></span>');
+    if (s.license) facts.push('<span>' + esc(s.license) + '</span>');
+    if (s.latestPublishedBy) {
+      facts.push('<span>this release published by <span class="pa-mono">' + esc(s.latestPublishedBy) + '</span></span>');
+    }
+    facts.push('<span>' + link('https://www.npmjs.com/package/' + currentPackage, 'on npm') + '</span>');
+    if (repo) facts.push('<span>' + link(repo, 'declared repository') + '</span>');
+    $('pkg-facts').innerHTML = facts.join('');
+  }
+
+  /* COVERAGE FIRST. Every number below this strip is bounded by it, so it renders above them and
+     never as a footnote — the distinction between "nothing found" and "nothing looked at" is the
+     one thing the established tools collapse. */
+  function renderCoverage(s) {
+    var read = s.packagesWithRightsRead || 0;
+    var total = s.packagesRead || 0;
+    var unread = Math.max(0, total - read);
+    var readPct = total > 0 ? (read / total) * 100 : 0;
+    $('coverage').innerHTML =
+      '<strong>' + num(total) + '</strong> packages reached two hops into the tree, of which ' +
+      '<strong>' + num(read) + '</strong> had their publish rights read' +
+      (unread > 0
+        ? ' and <strong>' + num(unread) + '</strong> did not. Everything below counts only the ' +
+          num(read) + ' that were read, so it is a floor rather than a total.'
+        : '. Everything below covers all of them.') +
+      '<div class="pa-cov-bar">' +
+        '<i class="pa-cov-read" style="width:' + readPct.toFixed(1) + '%"></i>' +
+        '<i class="pa-cov-unread" style="width:' + (100 - readPct).toFixed(1) + '%"></i>' +
+      '</div>' +
+      '<div class="pa-cov-key">' +
+        '<span class="pa-key-read">rights read</span>' +
+        (unread > 0 ? '<span class="pa-key-unread">not read</span>' : '') +
+        '<span>' + num(s.directDependencies || 0) + ' direct dependencies</span>' +
+      '</div>';
+  }
+
+  /* Parallel figures, never a composite. A single score would be ours rather than the registry's,
+     and it would invite the reader to stop reading at the number. */
+  function renderTiles(s, ownCount) {
+    var tiles = [
+      { n: ownCount, label: 'accounts can publish ' + currentPackage + ' itself',
+        note: 'The shortest path into your install: no dependency involved.' },
+      { n: s.accountsThatCanPublish, label: 'more accounts can publish into its tree',
+        note: 'Each is a credential that would have to stay uncompromised.' },
+      { n: s.accountsThatAreSolePublisher, label: 'of them are somebody’s only publisher',
+        note: 'Sole authority over at least one package you would install.' },
+      { n: s.packagesWithOnePublisher, label: 'packages have exactly one publisher',
+        note: 'Normal on npm. Listed below so you can see which.' }
+    ];
+    /* A package with no dependencies is a complete answer, not a broken page. Say so where the
+       reader is looking, rather than leaving three empty panels to imply a failure. */
+    if (!s.packagesRead) {
+      tiles = [tiles[0]];
+      $('tiles').innerHTML =
+        '<div class="pa-tile"><b>' + num(ownCount) + '</b><span>accounts can publish ' +
+        esc(currentPackage) + '</span><em>It has no dependencies at all, so these are the whole of ' +
+        'its publish surface \u2014 there is nothing beneath it to read.</em></div>';
+      return;
+    }
+    $('tiles').innerHTML = tiles.map(function (t) {
+      return '<div class="pa-tile"><b>' + num(t.n || 0) + '</b><span>' + t.label + '</span><em>' + t.note + '</em></div>';
+    }).join('');
+  }
+
+  /* THE TAIL IS COLLAPSED BY DEFAULT, and that is a judgement worth stating. Most accounts in any
+     tree can publish exactly one package, which is the ordinary case and carries no signal; left
+     expanded they are sixty rows of noise above the part that matters. The count stays visible so
+     nothing is hidden, and one click shows every row — flat and risk-sorted by default, detail on
+     demand, which is what the tools that do this well converge on. */
+  function authorityRow(r, max) {
+    var sole = r.solePublisherOf || 0;
+    var width = Math.max(3, Math.round(((r.canPublish || 0) / max) * 160));
+    return '<tr>' +
+      '<td>' + link(r.profileUrl, r.account) + '</td>' +
+      '<td><div class="pa-reach' + (sole > 0 ? ' pa-sole' : '') + '">' +
+        '<i style="width:' + width + 'px"></i><span>' + num(r.canPublish) + '</span></div></td>' +
+      '<td class="pa-num">' + (sole > 0
+        ? '<span class="pa-sole-tag">' + num(sole) + ' alone</span>'
+        : '<span class="pa-empty">\u2014</span>') + '</td>' +
+    '</tr>';
+  }
+
+  function renderAuthority(rows) {
+    if (!rows.length) {
+      $('authority').innerHTML = '<p class="pa-empty">No publish rights were read for this tree.</p>';
+      return;
+    }
+    var max = rows[0].canPublish || 1;
+    var several = rows.filter(function (r) { return (r.canPublish || 0) > 1 || (r.solePublisherOf || 0) > 0; });
+    var one = rows.filter(function (r) { return several.indexOf(r) === -1; });
+    var head = '<table><thead><tr><th>Account</th><th>Packages it may publish</th>' +
+      '<th class="pa-num">Sole publisher of</th></tr></thead><tbody id="auth-rows">';
+    $('authority').innerHTML = head +
+      several.map(function (r) { return authorityRow(r, max); }).join('') +
+      '</tbody></table>' +
+      (one.length
+        ? '<p class="pa-more"><button type="button" class="pa-btn pa-btn--quiet" id="show-tail">' +
+          'Show ' + num(one.length) + ' more account' + (one.length === 1 ? '' : 's') +
+          ' that can publish one package each</button></p>'
+        : '');
+    var btn = $('show-tail');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        $('auth-rows').insertAdjacentHTML('beforeend',
+          one.map(function (r) { return authorityRow(r, max); }).join(''));
+        btn.parentNode.removeChild(btn);
+      });
+    }
+  }
+
+  /* Top ten only. The tail is a long run of packages with one or two maintainers, which is the
+     ordinary case and carries nothing; the point of this table is the head of it. */
+  /* PACKAGES THAT DO THE SAME JOB, side by side. This is the one moment the numbers on this page
+     can actually change a decision: you cannot drop a transitive dependency of a framework you
+     chose, but you can choose a different framework. Everything else here describes a surface you
+     have already accepted. */
+  var ALTERNATIVES = {
+    express: ['express', 'koa', 'hapi', 'fastify'],
+    koa: ['koa', 'express', 'hapi', 'fastify'],
+    hapi: ['hapi', 'express', 'koa', 'fastify'],
+    fastify: ['fastify', 'express', 'koa', 'hapi'],
+    chalk: ['chalk', 'picocolors', 'kleur', 'ansi-colors'],
+    lodash: ['lodash', 'remeda', 'radash'],
+    axios: ['axios', 'got', 'ky', 'node-fetch'],
+    moment: ['moment', 'dayjs', 'date-fns', 'luxon']
+  };
+
+  async function compareWith(names) {
+    $('compare-out').innerHTML = '';
+    var rows = [];
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      try {
+        var env = await runners.compare.view('TrustSurface', { package: name },
+          { expectation: 'Reading ' + name + ' (' + (i + 1) + ' of ' + names.length + ').' });
+        var s = env ? rowsOf(env)[0] : null;
+        var own = await runners.compare.view('PackageMaintainers', { package: name }, { expectation: 'Its own publishers.' })
+          .then(function (e) { return e ? rowsOf(e).length : 0; })
+          .catch(function () { return 0; });
+        if (s) rows.push({ name: name, s: s, own: own });
+        else rows.push({ name: name, s: null, own: own });
+      } catch (e) { rows.push({ name: name, s: null, own: 0 }); }
+    }
+    var readable = rows.filter(function (r) { return r.s; });
+    if (!readable.length) {
+      $('compare-out').innerHTML = '<p class="pa-empty">None of these could be read.</p>';
+      return;
+    }
+    var max = Math.max.apply(null, readable.map(function (r) { return (r.s.accountsThatCanPublish || 0) + r.own; }));
+    var body = rows.map(function (r) {
+      if (!r.s) {
+        return '<tr><td>' + esc(r.name) + '</td><td colspan="4" class="pa-empty">could not be read</td></tr>';
+      }
+      var total = (r.s.accountsThatCanPublish || 0) + r.own;
+      var w = Math.max(3, Math.round((total / max) * 200));
+      return '<tr>' +
+        '<td>' + link('https://www.npmjs.com/package/' + r.name, r.name) + '</td>' +
+        '<td class="pa-num">' + num(r.s.packagesRead + 1) + '</td>' +
+        '<td><div class="pa-reach"><i style="width:' + w + 'px"></i><span>' + num(total) + '</span></div></td>' +
+        '<td class="pa-num">' + num(r.own) + '</td>' +
+        '<td class="pa-num">' + num(r.s.packagesWithOnePublisher) + '</td>' +
+      '</tr>';
+    }).join('');
+    var sorted = readable.slice().sort(function (a, b) {
+      return (a.s.accountsThatCanPublish + a.own) - (b.s.accountsThatCanPublish + b.own);
+    });
+    var note = sorted.length > 1
+      ? '<p class="pa-sub" style="margin-top:14px"><strong>' + esc(sorted[0].name) + '</strong> asks you to trust ' +
+        num(sorted[0].s.accountsThatCanPublish + sorted[0].own) + ' accounts; <strong>' +
+        esc(sorted[sorted.length - 1].name) + '</strong> asks for ' +
+        num(sorted[sorted.length - 1].s.accountsThatCanPublish + sorted[sorted.length - 1].own) +
+        '. Both do the same job. That is the whole of what this page can tell you that you can act on ' +
+        'before you install, rather than after.</p>'
+      : '';
+    $('compare-out').innerHTML =
+      '<h2>Same job, different surface</h2>' +
+      '<p class="pa-sub">Accounts that could publish into each install, counting the package itself and ' +
+      'everything two hops beneath it. Fewer is not automatically better \u2014 a smaller tree can mean ' +
+      'less is done for you \u2014 but it is a cost you are choosing, and nothing else shows it.</p>' +
+      '<table><thead><tr><th>Package</th><th class="pa-num">Packages</th><th>Accounts that can publish</th>' +
+      '<th class="pa-num">On it directly</th><th class="pa-num">Single-publisher</th></tr></thead><tbody>' +
+      body + '</tbody></table>' + note;
+  }
+
+  function renderReading(rows) {
+    var r = rows[0];
+    if (!r || !r.reading) {
+      $('reading').innerHTML = '<p class="pa-empty">No reading was produced. The world may have no ' +
+        'model configured for this, or its provider refused the call.</p>';
+      return;
+    }
+    /* Paragraphs, and marked as a judgement in the same block rather than in a caption somebody
+       scrolls past. The text is model output and goes in as TEXT, never as markup. */
+    var paras = String(r.reading).split(/\n\s*\n/).map(function (x) {
+      var p = document.createElement('p');
+      p.textContent = x.trim();
+      return p.outerHTML;
+    }).join('');
+    $('reading').innerHTML = '<div class="pa-reading">' + paras +
+      '<p class="pa-reading-foot">A model\u2019s judgement over the ' + num(r.dependenciesRead) +
+      ' direct dependencies above, not a fact from the registry. It can be wrong.</p></div>';
+  }
+
+  function renderContributors(rows) {
+    if (!rows.length) {
+      $('contributors').innerHTML = '<p class="pa-empty">No publish rights were read for this tree.</p>';
+      return;
+    }
+    var max = rows[0].accounts || 1;
+    var body = rows.slice(0, 10).map(function (r) {
+      var width = Math.max(3, Math.round(((r.accounts || 0) / max) * 160));
+      var excl = r.exclusive || 0;
+      return '<tr>' +
+        '<td>' + link(r.packageUrl, r.package) + '</td>' +
+        '<td><div class="pa-reach' + (excl > 0 ? ' pa-sole' : '') + '">' +
+          '<i style="width:' + width + 'px"></i><span>' + num(r.accounts) + '</span></div></td>' +
+        '<td class="pa-num">' + (excl > 0
+          ? '<span class="pa-sole-tag">' + num(excl) + ' only here</span>'
+          : '<span class="pa-empty">\u2014</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+    var lead = rows[0];
+    var note = (lead.exclusive || 0) > 2
+      ? '<p class="pa-sub"><strong>' + esc(lead.package) + '</strong> alone accounts for ' +
+        num(lead.accounts) + ' of the accounts that can publish into this tree, ' + num(lead.exclusive) +
+        ' of which arrive through no other package. Dropping it would remove them from your surface.</p>'
+      : '';
+    $('contributors').innerHTML =
+      '<table><thead><tr><th>Dependency</th><th>Accounts it brings in</th>' +
+      '<th class="pa-num">Reachable only here</th></tr></thead><tbody>' + body + '</tbody></table>' + note;
+  }
+
+  function renderSole(rows) {
+    if (!rows.length) {
+      $('sole').innerHTML = '<p class="pa-empty">Every package whose rights were read has more than one entitled account.</p>';
+      return;
+    }
+    var body = rows.map(function (r) {
+      return '<tr>' +
+        '<td>' + link(r.packageUrl, r.package) + '</td>' +
+        '<td class="pa-mono">' + esc(r.resolvedVersion || '') + '</td>' +
+        '<td>' + link('https://www.npmjs.com/~' + encodeURIComponent(r.soleAccount || ''), r.soleAccount) + '</td>' +
+      '</tr>';
+    }).join('');
+    $('sole').innerHTML =
+      '<table><thead><tr><th>Package</th><th>Resolved</th><th>Only account entitled to publish it</th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table>';
+  }
+
+  var currentPackage = '';
+  var ownAccounts = [];
+  var currentSurface = null;
+
+  async function analyse(name) {
+    currentPackage = name;
+    $('authority').innerHTML = '';
+    $('sole').innerHTML = '';
+    $('contributors').innerHTML = '';
+    $('reading').innerHTML = '';
+    try {
+      var env = await runners.surface.view('TrustSurface', { package: name },
+        { expectation: 'Resolving the dependency tree, then reading publish rights on every package in it.' });
+      if (!env) return;
+      /* The package's OWN maintainers are a SEPARATE view, and that is the engine's constraint
+         rather than a preference: asking for both in one query plans the root's join first, marks
+         the label materialised, and turns the fan-out across the tree into a semijoin that fetches
+         nobody — express collapses from 79 accounts to 5. */
+      try {
+        var ownEnv = await runners.own.view('PackageMaintainers', { package: name },
+          { expectation: 'Reading who is entitled to publish the package itself.' });
+        ownAccounts = ownEnv ? rowsOf(ownEnv) : [];
+      } catch (e) { ownAccounts = []; }
+      var s = rowsOf(env)[0];
+      if (!s) {
+        $('result').classList.add('pa-hidden');
+        return;
+      }
+      renderIdentity(s);
+      currentSurface = s;
+      renderCoverage(s);
+      renderTiles(s, ownAccounts.length);
+      $('result').classList.remove('pa-hidden');
+    } catch (e) { return; /* the runner has already reported it in surface-state */ }
+
+    if (!currentSurface || !currentSurface.packagesRead) {
+      var none = '<p class="pa-empty">' + esc(currentPackage) + ' has no dependencies, so there is ' +
+        'no tree to read. Everything that can reach your install is in the figure above.</p>';
+      $('reading').innerHTML = '';
+      $('contributors').innerHTML = none;
+      $('authority').innerHTML = none;
+      $('sole').innerHTML = none;
+      return;
+    }
+
+    /* ONE AT A TIME, deliberately. Both of these views run the same derived rule sets over the
+       same tree, and firing them together has each concluding into the other's overlay: the second
+       request comes back "could not be completed" while either alone is fine. The tree is warm by
+       now, so sequencing costs a few hundred milliseconds and buys a page that always renders. */
+    try {
+      var reading = await runners.reading.view('ProportionReading', { package: name },
+        { expectation: 'Asking a model what it makes of these dependencies.' });
+      if (reading) renderReading(rowsOf(reading));
+    } catch (e) { /* reported in reading-state */ }
+
+    try {
+      var contrib = await runners.contributors.view('SurfaceContributors', { package: name },
+        { expectation: 'Working out which dependency brings in the most publish accounts.' });
+      if (contrib) renderContributors(rowsOf(contrib));
+    } catch (e) { /* reported in contributors-state */ }
+
+    try {
+      var auth = await runners.authority.view('PublishAuthority', { package: name, minPackages: 1 },
+        { expectation: 'Ranking the accounts by how much of the tree each one reaches.' });
+      if (auth) renderAuthority(rowsOf(auth));
+    } catch (e) { /* reported in authority-state */ }
+
+    try {
+      var sole = await runners.sole.view('SinglePublisherDependencies', { package: name },
+        { expectation: 'Listing the packages with exactly one entitled publisher.' });
+      if (sole) renderSole(rowsOf(sole));
+    } catch (e) { /* reported in sole-state */ }
+  }
+
+  function submit() {
+    var name = ($('pkg').value || '').trim();
+    if (name) analyse(name);
+  }
+
+  $('go').addEventListener('click', submit);
+  $('compare').addEventListener('click', function () {
+    var name = ($('pkg').value || '').trim() || 'express';
+    var names = ALTERNATIVES[name] || [name].concat(ALTERNATIVES.express.filter(function (x) { return x !== name; }));
+    compareWith(names);
+  });
+  $('pkg').addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+  Array.prototype.forEach.call(document.querySelectorAll('.pa-examples button'), function (b) {
+    b.addEventListener('click', function () {
+      $('pkg').value = b.getAttribute('data-p');
+      submit();
+    });
+  });
+})();
+</script>
+</body>
+</html>

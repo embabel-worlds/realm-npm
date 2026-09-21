@@ -1,0 +1,80 @@
+# What GitHub itself says about the repository a package claims to come from.
+#
+#   GitHubBackedProject ──HAS_REPO_FACTS──▶ NpmRepoFacts    archived, and whether it resolves
+#                       ──HAS_LAST_COMMIT─▶ NpmLastCommit   when the default branch really moved
+#
+# Anchored on the DERIVED GitHubBackedProject rather than on NpmSourceProject, because the API takes
+# `owner/repo` and deps.dev answers `github.com/owner/repo`. A non-GitHub project never acquires the
+# derived label, so it simply has no facts here rather than a key that cannot be fetched.
+
+- name: NpmRepoFacts
+  description: >-
+    GitHub's own account of the repository a package names. Reached from GitHubBackedProject via
+    HAS_REPO_FACTS.
+
+    ITS EXISTENCE IS THE FIRST FACT. A package may declare any repository it likes and npm does not
+    check, which is how impersonation works and why deps.dev reports the link as
+    `UNVERIFIED_METADATA`. A record here means the repository resolves and GitHub returned it;
+    nothing here means the claim could not be confirmed, which is worth knowing and is NOT proof of
+    bad faith — a repository can be private, renamed or moved.
+
+    `archived` IS THE ONE HARD SIGNAL. A maintainer has formally retired the project while its
+    package still installs. Rare, decisive, and not inferable from activity: none of express, koa,
+    hapi, moment or the long-deprecated `request` is archived.
+  properties:
+    key:
+      description: "The `owner/repo` this was read for. Identity — one record per repository."
+      metadata:
+        identity: "true"
+    fullName: "The repository's own name for itself. A mismatch with the key means the claim redirected somewhere else."
+    archived: "True when the repository is formally retired. Decisive when set."
+    disabled: "True when GitHub has disabled the repository."
+    pushedAt: "Last push to ANY branch. Deliberately kept beside the real last commit, because a tag, a bot branch or a fork sync bumps this and none of them is the project moving."
+    defaultBranch: "The branch the last commit is read from."
+    stars: "Popularity, which is NOT maintenance — the xz-utils backdoor landed in a project everybody used."
+  virtualJoins:
+    - anchorLabel: NpmSourceProject
+      relationship: HAS_REPO_FACTS
+      keyField: projectKey
+      recordKeyField: key
+      producer: githubRepoFacts
+      maxAnchors: 40
+      description: >-
+        Whether a claimed repository resolves, and whether it is archived:
+        `(s:NpmSourceProject)-[:HAS_REPO_FACTS]->(f:NpmRepoFacts)`.
+
+- name: NpmLastCommit
+  description: >-
+    When the default branch of the claimed repository last actually moved. Reached from
+    GitHubBackedProject via HAS_LAST_COMMIT.
+
+    NOT THE SAME AS THE PUSH DATE, and the gap can be enormous. Measured on `request/request`: last
+    push 2024-08-14, last commit on the default branch 2020-02-11 — four and a half years apart,
+    because a push to any branch or tag bumps the first and only work on the default branch moves
+    the second. A tool reporting the push date understates that staleness by more than half.
+
+    A DATE IS A CLAIM. Git lets a committer set it to anything, so this is evidence rather than
+    proof. It is good evidence, because nobody forges a date to look STALE, and a realm that prints
+    it should still say what it is.
+
+    Scorecard's `Maintained` check already folds this into a 0-to-10 and catches the same projects.
+    What the raw date adds is magnitude — zero out of ten reads identically at ninety-one days and
+    at six years — and auditability, because a date is something a reader can go and check.
+  properties:
+    key:
+      description: "The `owner/repo` this was read for. Identity — one record per repository."
+      metadata:
+        identity: "true"
+    lastCommitDate: "Committer date of the default branch's head commit."
+    lastCommitBy: "The commit's author name, as git recorded it. Self-reported and unverified."
+    lastCommitMessage: "Its message, which usually says more about whether the project is alive than any score does."
+  virtualJoins:
+    - anchorLabel: NpmSourceProject
+      relationship: HAS_LAST_COMMIT
+      keyField: projectKey
+      recordKeyField: key
+      producer: githubLastCommit
+      maxAnchors: 40
+      description: >-
+        When the code last moved:
+        `(s:NpmSourceProject)-[:HAS_LAST_COMMIT]->(c:NpmLastCommit)`.

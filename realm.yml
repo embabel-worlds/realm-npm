@@ -23,6 +23,19 @@ tags:
 exports:
   - npm_downloads
   - npm_registry
+  - deps_dev
   - NpmPackage
   - NpmDownloads
   - NpmRelease
+  - NpmDependency
+  - NpmResolution
+  - NpmMaintainer
+  - NpmLicence
+  - NpmBuildProvenance
+  - NpmSourceProject
+  - NpmProjectHealth
+  - NpmScorecardCheck
+  - github_repo
+  - NpmRepoFacts
+  - NpmLastCommit
+  - ProportionReview

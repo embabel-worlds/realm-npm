@@ -1,0 +1,91 @@
+# THE DEPENDENCY GRAPH, one hop at a time.
+#
+# deps.dev resolves the entire transitive graph in a single call and hands back every node,
+# flagged SELF / DIRECT / INDIRECT. This realm takes only the DIRECT ones. That is a
+# deliberate choice and it is the whole design:
+#
+#   - Taking the resolved closure would make the graph a FETCHED ARTEFACT — one big blob per
+#     root package, with no per-package reuse and no way to ask WHY something is in it.
+#   - Taking direct edges makes the graph COMPOSABLE. Each package's direct dependencies are
+#     one small cached call, shared by every root that reaches it, and the transitive closure
+#     becomes something the engine concludes — with a depth, with provenance, and with the
+#     ability to propagate a judgement (see rules/).
+#
+# The cost model favours it too: `react` resolves to 3 nodes, `express` to 72. A realm
+# watching forty packages that share a common core fetches each shared package once.
+
+# Direct dependencies of one published version.
+- name: npmDirectDependencies
+  kind: remote
+  operation: packageDependencies
+  # Only the direct edges. A node that is BOTH direct and indirect is marked DIRECT by
+  # deps.dev, so this filter is the true direct set rather than an approximation of it.
+  records: "$.nodes[?(@.relation=='DIRECT')]"
+  args:
+    system: NPM
+  keyArgs: [name, version]
+  # The composite arrives as `name|version`. The default separator is "/" and an npm scope
+  # contains one, so a scoped package would split into the wrong number of parts and fetch
+  # nonsense; realm-oss-health hit the same trap on a path-shaped key.
+  keySplit: "|"
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  batchSafe: false
+  project:
+    name: versionKey.name
+    version: versionKey.version
+    relation: relation
+    bundled: bundled
+  # deps.dev's own response says max-age=3600; matching it is neither stale nor wasteful.
+  # A package version's dependency list is immutable in practice, so the negative TTL is the
+  # one that matters: an unpublished or unresolvable version must not be re-asked forever.
+  cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }
+
+# The resolver's VERDICT on the same call, as its own record.
+#
+# This producer exists because of one failure mode: deps.dev answers 200 with `nodes: []` and
+# the reason in a top-level `error` string when it cannot resolve the graph. Read through the
+# node list alone, "unresolvable" and "depends on nothing" are the same answer — and the
+# second is a claim a security review would act on. One record per version, carrying the
+# verdict, makes the difference queryable.
+- name: npmResolution
+  kind: remote
+  operation: packageDependencies
+  records: "$"
+  args:
+    system: NPM
+  keyArgs: [name, version]
+  keySplit: "|"
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  batchSafe: false
+  project:
+    resolverError: error
+  cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }
+
+# THE LICENCE OF ONE RESOLVED VERSION — the obligation you actually acquired.
+#
+# deps.dev answers this per version, from the same document that carries advisories and repository
+# links. It is the RESOLVED version's licence, which is the one that matters: a range in somebody's
+# package.json is a requirement, and requirements do not bind you. What binds you is what installed.
+#
+# `licenses` IS A LIST and is projected as one. Dual licensing is real (`MIT OR Apache-2.0`), and
+# flattening it to a first element would turn a choice you are entitled to make into a constraint
+# somebody invented. An empty list means deps.dev knows of no licence — which is NOT the same as
+# "no licence applies", and is the case a review should look at hardest.
+- name: npmVersionLicence
+  kind: remote
+  operation: packageVersion
+  records: "$"
+  args:
+    system: NPM
+  keyArgs: [name, version]
+  keySplit: "|"
+  echoKeyAs: key
+  maxKeysPerCall: 1
+  batchSafe: false
+  project:
+    licences: "licenses[*]"
+  # A published version is immutable, so its licence is too. The negative TTL is what matters: an
+  # unresolvable version must not be re-asked on every query.
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }

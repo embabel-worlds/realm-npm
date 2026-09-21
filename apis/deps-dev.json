@@ -1,0 +1,141 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "deps.dev dependencies",
+  "version": "v3",
+  "description": "Google's Open Source Insights resolved dependency graph. Keyless and open, and deps.dev expressly permits caching; its own responses carry `cache-control: max-age=3600`, which is the TTL the producers here use.\n\nDEPENDENCIES EXIST FOR FOUR SYSTEMS ONLY - NPM, CARGO, MAVEN, PYPI. GO, NUGET and RUBYGEMS return 404 `dependencies not found`. This realm asks about NPM and says so.\n\nTHE FAILURE THAT LOOKS LIKE SUCCESS: a 200 can carry `nodes: []` with the reason in a top-level `error` string - e.g. `syn/^2.0.81: no candidates found`. Zero dependencies and an unresolvable graph are therefore INDISTINGUISHABLE from the node list alone, which is why this realm also models the resolver's verdict as its own type. Never read an empty dependency set as 'this package depends on nothing'."
+ },
+ "servers": [
+  {
+   "url": "https://api.deps.dev"
+  }
+ ],
+ "paths": {
+  "/v3/systems/{system}/packages/{name}/versions/{version}:dependencies": {
+   "get": {
+    "operationId": "packageDependencies",
+    "summary": "The resolved dependency graph of one package version",
+    "description": "Returns `{nodes: [{versionKey: {system, name, version}, bundled, relation, errors}], edges: [{fromNode, toNode, requirement}], error}`.\n\n`relation` is `SELF` | `DIRECT` | `INDIRECT`; `nodes[0]` is always the root and always `SELF`. `fromNode`/`toNode` are zero-based integer indices into `nodes`. A dependency that is both direct and indirect is marked DIRECT.\n\ndeps.dev resolves the WHOLE transitive graph in one call. This realm deliberately ingests only the DIRECT nodes, so the graph is built hop by hop from cached per-package calls and the transitive closure is a conclusion the engine draws rather than a number the API handed over. That is what makes depth, propagation and provenance available at all.",
+    "parameters": [
+     {
+      "name": "system",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Package system, uppercase: NPM. Dependencies are published for NPM, CARGO, MAVEN and PYPI only."
+     },
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Package name, percent-encoded. A scoped npm name must arrive as `%40scope%2Fname` - raw `@scope/name` 404s."
+     },
+     {
+      "name": "version",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Exact published version, e.g. `18.3.1`. There is no 'latest' alias; resolve the version first."
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Resolved graph, or an empty node list with the reason in `error`.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v3/systems/{system}/packages/{name}/versions/{version}": {
+   "get": {
+    "operationId": "packageVersion",
+    "summary": "One published version: licences, advisory keys, links and the project's OpenSSF Scorecard",
+    "description": "Returns licences, `advisoryKeys`, `links` and `relatedProjects` for a version. `relatedProjects[].relationProvenance` records HOW the package-to-repository link was established rather than asserting it, which is the field that lets a consumer say whether a repository claim was verified.",
+    "parameters": [
+     {
+      "name": "system",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Package system, uppercase: NPM. Dependencies are published for NPM, CARGO, MAVEN and PYPI only."
+     },
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Package name, percent-encoded. A scoped npm name must arrive as `%40scope%2Fname` - raw `@scope/name` 404s."
+     },
+     {
+      "name": "version",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Exact published version, e.g. `18.3.1`. There is no 'latest' alias; resolve the version first."
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "version record",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v3/projects/{projectKey}": {
+   "get": {
+    "operationId": "projectInfo",
+    "summary": "A source repository's OpenSSF Scorecard, stars and licence",
+    "description": "Returns `{projectKey, description, starsCount, forksCount, openIssuesCount, license, scorecard}`.\n\n`scorecard` carries `date`, `repository.{name,commit}`, `scorecard.{version,commit}` and `checks[].{name,score,reason,documentation}` \u2014 so a reading is attributable to a specific commit of the repo scanned by a specific version of the scanner, rather than being a floating number.\n\nA CHECK SCORE OF -1 MEANS NOT EVALUATED, not zero. Averaging it in drags a well-run project down; every consumer must exclude it and say how many it excluded.\n\n`projectKey` is host-qualified and percent-encoded in the path: `github.com%2Fexpressjs%2Fexpress`.",
+    "parameters": [
+     {
+      "name": "projectKey",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Host-qualified repository path, e.g. `github.com/expressjs/express`, percent-encoded."
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "project record",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

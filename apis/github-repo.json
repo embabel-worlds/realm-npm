@@ -1,0 +1,82 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "GitHub repository facts",
+  "version": "2022-11-28",
+  "description": "Three facts nothing else in this realm can supply: whether a repository is ARCHIVED (formally retired while its package still installs), when its default branch last actually moved, and whether the repository a package claims even resolves.\n\nRATE LIMITED. 60 requests an hour unauthenticated, 5,000 with a token. One call per repository, cached for a day."
+ },
+ "servers": [
+  {
+   "url": "https://api.github.com"
+  }
+ ],
+ "paths": {
+  "/repos/{owner}/{repo}": {
+   "get": {
+    "operationId": "repoFacts",
+    "summary": "Repository metadata, including archived and the last push",
+    "parameters": [
+     {
+      "name": "owner",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "repo",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "repository"
+     }
+    }
+   }
+  },
+  "/repos/{owner}/{repo}/commits": {
+   "get": {
+    "operationId": "repoLastCommit",
+    "summary": "The default branch's most recent commit",
+    "description": "`per_page=1` makes this one row: the head of the default branch. Its committer date is what people mean by 'is this still being worked on' \u2014 NOT the repository's `pushed_at`, which any branch or tag push bumps. Measured on `request/request` the two are four and a half years apart.",
+    "parameters": [
+     {
+      "name": "owner",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "repo",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "per_page",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "commits"
+     }
+    }
+   }
+  }
+ }
+}

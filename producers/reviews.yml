@@ -1,0 +1,52 @@
+# ONE MODEL JUDGEMENT over rows the query already fetched.
+#
+# The registry facts are cheap to obtain: one deps.dev call resolves a whole closure and one
+# registry call per package gives its maintainers and licence. Anyone can assemble that in an
+# afternoon. What nobody ships for free is the JUDGEMENT — which of those rows matters, for the
+# thing you are actually building — and a judgement is the one part of this realm a shell script
+# cannot reproduce.
+#
+# FAN-IN, not generation. This producer invents no package and no account: it gathers the
+# dependencies THIS query already materialised and reduces them. Nothing reaches the model that did
+# not come from deps.dev first, which is what keeps the output arguable rather than imagined.
+#
+# A LICENCE JUDGEMENT IS NOT HERE, and the reason is an engine constraint worth knowing. The
+# licence lives on its own node two hops from the release, an aggregate producer collects exactly
+# ONE hop, and the obvious fix — a derived rule copying the licence onto the dependency — cannot
+# work either: derived labels live in the run's overlay and are released when it ends, so the
+# collector's own scoped read never sees them. `LicenceExposure` reports the licences as data
+# instead, which is checkable line by line and needs no model at all.
+#
+# RUNS ON THE WORLD'S `vc_execution` ROLE, so an operator chooses the model and pays for it. A
+# day's cache: the inputs are an immutable resolved tree, so re-reducing the same facts hourly
+# would be spending money to get the same paragraph.
+
+# 2. PROPORTIONALITY: is the authority a package carries proportionate to what it does?
+- name: proportionReview
+  kind: aggregate
+  edgeType: HAS_PROPORTION_REVIEW
+  identityField: reviewId
+  anchorKeyField: anchorKey
+  collect:
+    anchorLabel: NpmRelease
+    anchorKeyProperty: key
+    targetLabel: NpmDependency
+    via: HAS_DEPENDENCY
+    text: "{{ name }}@{{ version }}"
+    limit: 300
+  reduce:
+    using: summarize
+    into: assessment
+    role: vc_execution
+    args:
+      - >-
+        These are the direct dependencies of one npm package. For each, you know what the package
+        does from its name and your knowledge of the npm ecosystem. Write at most 130 words, second
+        person, for an engineer reviewing what they are about to install.
+        Name any dependency whose JOB IS TRIVIAL relative to the position it occupies — a
+        one-function utility sitting deep in a widely-installed tree — and say what it does, because
+        that mismatch is where a large publish surface hides behind a small package.
+        Name any dependency you would not expect a package of this kind to need at all.
+        Where you are unsure what a package does, SAY you are unsure rather than guessing: a wrong
+        description here is worse than a missing one.
+        Judge proportion, never people. Say nothing about any maintainer.
