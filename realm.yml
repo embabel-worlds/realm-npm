@@ -14,6 +14,7 @@ description: |
   npm's download-counts API and the registry itself. Nothing to configure.
 version: 0.1.0
 author: rod
+category: security
 tags:
   - npm
   - dependencies
