@@ -267,7 +267,7 @@
 
 - name: ProportionReading
   description: >-
-    A model's reading of which direct dependencies look out of proportion to their job. A MODEL'S
+    Which direct dependencies look out of proportion to their job, by a model. A MODEL'S
     READING of this package's direct dependencies (not the deeper tree): which ones do a trivial job
     relative to the position they occupy, and which a package of this kind would not be expected to need at all.
     That mismatch is where a large publish surface hides behind a small package.
