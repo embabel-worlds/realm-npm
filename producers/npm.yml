@@ -1,6 +1,12 @@
 # Two producers, both keyed per package. npm's download and registry hosts are
 # open and keyless, so nothing here needs configuration.
 #
+# ONE CALL PER PACKAGE, and the bulk form is deliberately not used. The downloads API does accept a
+# comma-separated list (`/downloads/point/last-week/react,lodash`, up to 128 names), but it refuses
+# the whole batch ("scoped packages are not currently supported in bulk lookups") the moment one
+# name is scoped, and a dependency tree is full of `@scope/name`. One scoped package would turn a
+# whole batch of readings into nothing.
+#
 # Both endpoints return ONE object, not a list, so `records` selects the whole
 # response with `$` and every projection below is a plain field read. Values
 # arrive typed but reach the views as STRINGS, so the views toInteger() the
@@ -22,8 +28,13 @@
     count: downloads
     periodStart: start
     periodEnd: end
-  # The count is recomputed daily, so an hour's cache costs nothing in freshness.
-  cache: { kind: ttl, seconds: 3600 }
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
+  # The last-week window moves once a day (npm recomputes the counts daily, UTC), so half a day is
+  # fresh enough for a weekly figure. A name the API does not know answers 404; that is remembered
+  # for an hour so a typo is not re-asked on every query.
+  cache: { kind: ttl, seconds: 43200, negativeTtlSeconds: 3600 }
 
 - name: packageLatest
   kind: remote
@@ -65,4 +76,9 @@
     # exactly as this realm reads an absent licence.
     provenanceUrl: dist.attestations.url
     provenanceType: dist.attestations.provenance.predicateType
-  cache: { kind: ttl, seconds: 3600 }
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
+  # `latest` moves when someone publishes, so an hour (the registry's own CDN holds it five
+  # minutes). A name the registry does not know answers 404; remembered for an hour too.
+  cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }

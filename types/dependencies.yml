@@ -24,7 +24,9 @@
 
 - name: NpmDependency
   description: >-
-    One package another package depends on DIRECTLY, as deps.dev resolved it. Reached from
+    One package another package depends on DIRECTLY, as deps.dev resolved it, at its resolved
+    `version`; it has no single identity property (see below) — `name` + `version` say which package
+    it is and `key` which parent asked. Reached from
     NpmRelease via HAS_DEPENDENCY, and from another NpmDependency by the same edge — so a
     query walks as many hops as it asks for.
 
@@ -50,10 +52,10 @@
         The `name|version` composite this row was fetched for — the PARENT, not this package.
         It is what makes a row's lineage readable, and what distinguishes two parents' copies of
         the same dependency.
-    name: "The dependency's npm package name. Scoped names arrive as `@scope/name`."
+    name: "The dependency's npm package name, exact. Scoped names arrive as `@scope/name`."
     version: "The exact version deps.dev resolved to, not the declared range."
-    relation: "`DIRECT` by construction — see the note above."
-    bundled: "True when the dependency ships inside the parent's tarball rather than being installed separately."
+    relation: { type: string, values: [DIRECT], description: "Always `DIRECT` by construction — only direct edges are read; see the note above." }
+    bundled: { type: boolean, description: "True when the dependency ships inside the parent's tarball rather than being installed separately." }
   virtualJoins:
     - anchorLabel: NpmRelease
       relationship: HAS_DEPENDENCY
@@ -63,8 +65,10 @@
       recordKeyField: key
       producer: npmDirectDependencies
       description: >-
-        What the latest published version depends on directly:
+        What the latest published version depends on directly (zero or many): one deps.dev call
+        per release, cached an hour.
         `MATCH (p:NpmPackage)-[:HAS_LATEST_RELEASE]->(r:NpmRelease)-[:HAS_DEPENDENCY]->(d:NpmDependency)`.
+        Zero rows is ambiguous — check HAS_RESOLUTION before reporting "no dependencies".
     - anchorLabel: NpmDependency
       relationship: HAS_DEPENDENCY
       # The recursive hop. A dependency carries its own name and resolved version, so it is a
@@ -74,7 +78,9 @@
       producer: npmDirectDependencies
       maxAnchors: 60
       description: >-
-        What a dependency itself depends on — chain the edge to go deeper:
+        What a dependency itself depends on — chain the edge to go deeper. One cached deps.dev call
+        per distinct dependency version, at most 60 anchors per hop; the same package reached from
+        two parents is two nodes, so count DISTINCT d.name:
         `(r:NpmRelease)-[:HAS_DEPENDENCY]->(:NpmDependency)-[:HAS_DEPENDENCY]->(d:NpmDependency)`.
 
         DEPTH IS THE QUERY'S, on an engine carrying embabel/me#1265. Before that fix a third
@@ -87,8 +93,9 @@
 
 - name: NpmResolution
   description: >-
-    Whether deps.dev could resolve this version's dependency graph at all, and what stopped it if
-    not. Reached from NpmRelease via HAS_RESOLUTION.
+    One package version's dependency-resolution verdict from deps.dev, identified by `key` (the
+    `name|version` it is about): whether its dependency graph resolved at all, and what stopped it
+    if not. Reached from NpmRelease via HAS_RESOLUTION.
 
     THIS TYPE EXISTS BECAUSE OF ONE FAILURE MODE, and it is the dangerous kind. deps.dev answers
     HTTP 200 with an empty node list and the reason in a `resolverError` string when resolution
@@ -112,13 +119,14 @@
       recordKeyField: key
       producer: npmResolution
       description: >-
-        The resolver's verdict on a version's graph:
+        The resolver's verdict on a release's graph (exactly one), from the same cached call as
+        HAS_DEPENDENCY. Read it before trusting an empty dependency set:
         `MATCH (r:NpmRelease)-[:HAS_RESOLUTION]->(v:NpmResolution) WHERE v.resolverError <> ''`.
 
 - name: NpmLicence
   description: >-
-    The licence of one resolved dependency version, as deps.dev records it. Reached from
-    NpmDependency via HAS_LICENCE.
+    The licence of one resolved dependency version, as deps.dev records it, identified by `key`
+    (the `name|version` it belongs to). Reached from NpmDependency via HAS_LICENCE.
 
     THE RESOLVED VERSION'S LICENCE, which is the only one that binds you. A range in somebody's
     package.json is a requirement; what you installed is an obligation.
@@ -143,7 +151,8 @@
       maxAnchors: 200
       maxFanoutTotal: 2000
       description: >-
-        What a dependency is licensed under:
+        What a dependency version is licensed under (zero or one record, a LIST of SPDX ids). One
+        deps.dev call per dependency version, cached a day, up to 200 per hop:
         `(d:NpmDependency)-[:HAS_LICENCE]->(l:NpmLicence)`.
 
 # THE MODEL JUDGEMENT. One node per release, carrying an `assessment` written by a model, and its
@@ -152,8 +161,9 @@
 
 - name: ProportionReview
   description: >-
-    A MODEL'S READING of whether each direct dependency's job is proportionate to the position it
-    occupies — the mismatch that lets a large publish surface hide behind a small package. Reached
+    One model-written reading of one release's direct dependencies, identified by `reviewId`
+    (engine-minted) and linked to the release by `anchorKey`. A MODEL'S READING of whether each
+    direct dependency's job is proportionate to the position it occupies — the mismatch that lets a large publish surface hide behind a small package. Reached
     from NpmRelease via HAS_PROPORTION_REVIEW.
 
     A JUDGEMENT, NOT A REGISTER FACT. It draws on the model's own knowledge of what these packages
@@ -175,5 +185,6 @@
       producer: proportionReview
       maxAnchors: 5
       description: >-
-        A proportionality reading for a release:
+        A model's proportionality reading for a release (zero or one), from the direct dependencies
+        already read; at most 5 releases per query:
         `(r:NpmRelease)-[:HAS_PROPORTION_REVIEW]->(v:ProportionReview)`. Costs one model call.

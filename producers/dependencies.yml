@@ -39,6 +39,9 @@
   # deps.dev's own response says max-age=3600; matching it is neither stale nor wasteful.
   # A package version's dependency list is immutable in practice, so the negative TTL is the
   # one that matters: an unpublished or unresolvable version must not be re-asked forever.
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }
 
 # The resolver's VERDICT on the same call, as its own record.
@@ -61,6 +64,9 @@
   batchSafe: false
   project:
     resolverError: error
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }
 
 # THE LICENCE OF ONE RESOLVED VERSION — the obligation you actually acquired.
@@ -88,4 +94,7 @@
     licences: "licenses[*]"
   # A published version is immutable, so its licence is too. The negative TTL is what matters: an
   # unresolvable version must not be re-asked on every query.
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }

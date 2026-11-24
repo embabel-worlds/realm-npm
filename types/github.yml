@@ -9,8 +9,9 @@
 
 - name: NpmRepoFacts
   description: >-
-    GitHub's own account of the repository a package names. Reached from GitHubBackedProject via
-    HAS_REPO_FACTS.
+    One GitHub repository's own facts, identified by `key` (the host-qualified repository key it was
+    read for, e.g. github.com/expressjs/express): archived, disabled, last push, default branch.
+    Read live, cached a day. Reached from NpmSourceProject via HAS_REPO_FACTS.
 
     ITS EXISTENCE IS THE FIRST FACT. A package may declare any repository it likes and npm does not
     check, which is how impersonation works and why deps.dev reports the link as
@@ -23,15 +24,15 @@
     hapi, moment or the long-deprecated `request` is archived.
   properties:
     key:
-      description: "The `owner/repo` this was read for. Identity — one record per repository."
+      description: "The host-qualified repository key this was read for, e.g. github.com/expressjs/express. Identity — one record per repository."
       metadata:
         identity: "true"
     fullName: "The repository's own name for itself. A mismatch with the key means the claim redirected somewhere else."
-    archived: "True when the repository is formally retired. Decisive when set."
-    disabled: "True when GitHub has disabled the repository."
-    pushedAt: "Last push to ANY branch. Deliberately kept beside the real last commit, because a tag, a bot branch or a fork sync bumps this and none of them is the project moving."
+    archived: { type: boolean, description: "True when the repository is formally retired. Decisive when set." }
+    disabled: { type: boolean, description: "True when GitHub has disabled the repository." }
+    pushedAt: "Last push to ANY branch, ISO 8601 date-time UTC (e.g. 2024-08-14T18:01:02Z), GitHub's system clock. Deliberately kept beside the real last commit, because a tag, a bot branch or a fork sync bumps this and none of them is the project moving."
     defaultBranch: "The branch the last commit is read from."
-    stars: "Popularity, which is NOT maintenance — the xz-utils backdoor landed in a project everybody used."
+    stars: { type: int, description: "GitHub stargazers. Popularity, which is NOT maintenance — the xz-utils backdoor landed in a project everybody used." }
   virtualJoins:
     - anchorLabel: NpmSourceProject
       relationship: HAS_REPO_FACTS
@@ -40,13 +41,17 @@
       producer: githubRepoFacts
       maxAnchors: 40
       description: >-
-        Whether a claimed repository resolves, and whether it is archived:
+        GitHub's facts for a claimed repository (zero or one; none means it did not resolve, or the
+        host is not GitHub). One GitHub call per repository, cached a day, at most 40 per query —
+        unauthenticated GitHub allows 60 calls an hour:
         `(s:NpmSourceProject)-[:HAS_REPO_FACTS]->(f:NpmRepoFacts)`.
 
 - name: NpmLastCommit
   description: >-
-    When the default branch of the claimed repository last actually moved. Reached from
-    GitHubBackedProject via HAS_LAST_COMMIT.
+    The head commit of one GitHub repository's default branch, identified by `key` (the
+    host-qualified repository key, e.g. github.com/request/request): when the code last actually
+    moved, and who committed it. Read live, cached a day. Reached from NpmSourceProject via
+    HAS_LAST_COMMIT.
 
     NOT THE SAME AS THE PUSH DATE, and the gap can be enormous. Measured on `request/request`: last
     push 2024-08-14, last commit on the default branch 2020-02-11 — four and a half years apart,
@@ -62,10 +67,10 @@
     at six years — and auditability, because a date is something a reader can go and check.
   properties:
     key:
-      description: "The `owner/repo` this was read for. Identity — one record per repository."
+      description: "The host-qualified repository key this was read for, e.g. github.com/request/request. Identity — one record per repository."
       metadata:
         identity: "true"
-    lastCommitDate: "Committer date of the default branch's head commit."
+    lastCommitDate: "Committer date of the default branch's head commit, ISO 8601 date-time UTC as git recorded it (self-reported, so evidence rather than proof)."
     lastCommitBy: "The commit's author name, as git recorded it. Self-reported and unverified."
     lastCommitMessage: "Its message, which usually says more about whether the project is alive than any score does."
   virtualJoins:
@@ -76,5 +81,6 @@
       producer: githubLastCommit
       maxAnchors: 40
       description: >-
-        When the code last moved:
+        The default branch's head commit (zero or one). One GitHub call per repository, cached a day,
+        at most 40 per query:
         `(s:NpmSourceProject)-[:HAS_LAST_COMMIT]->(c:NpmLastCommit)`.

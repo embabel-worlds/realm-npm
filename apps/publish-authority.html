@@ -620,5 +620,130 @@
   });
 })();
 </script>
+
+<style>
+  #how-it-works { display: none; max-width: 980px; margin: 0 auto; padding: 0 20px 96px; }
+  #how-it-works:target { display: block; }
+  #how-it-works pre { background: var(--ground-2); border: 1px solid var(--rule); padding: 10px 12px; overflow-x: auto; font-size: 12px; line-height: 1.45; }
+  #how-it-works h3 { font-size: 14px; margin: 18px 0 6px; }
+  .pa-hiw-link { display: block; text-align: center; margin: 0 0 48px; font-size: 12px; color: var(--ink-3); }
+</style>
+<section id="how-it-works">
+  <h2>How it works</h2>
+  <h3>The data, and how fresh it is</h3>
+  <p>Nothing here is stored except the package you type. Its latest release and maintainer list come
+  from the npm registry (cached an hour), its resolved dependency graph from deps.dev (cached an
+  hour, one call per package version), and the maintainers of every package in the tree from the
+  registry again, one small cached call per distinct package. The tree is read two hops deep, and
+  every panel says how many packages it actually read. The maintainer list is who can publish
+  <em>today</em>, not who could when you installed.</p>
+  <h3>The views, and the Cypher that runs</h3>
+    <h3>TrustSurface</h3>
+    <pre>MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]-&gt;(r:NpmRelease)
+OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]-&gt;(d1:NpmDependency)
+OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]-&gt;(d2:NpmDependency)
+WITH r, count(DISTINCT d1.name) AS direct, count(DISTINCT d2.name) AS indirect
+OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]-&gt;(dd:NpmDependency)-[:MAINTAINED_BY]-&gt;(a:NpmMaintainer)
+WITH r, direct, indirect,
+     count(DISTINCT dd.name) AS packagesWithRightsRead,
+     count(DISTINCT a.account) AS accounts
+OPTIONAL MATCH (sole:NpmMaintainer)-[s:SOLE_CONTROL]-&gt;(:NpmPackage)
+WITH r, direct, indirect, packagesWithRightsRead, accounts,
+     count(DISTINCT sole.account) AS soleAccounts,
+     coalesce(sum(s.packages), 0) AS packagesWithOnePublisher
+RETURN r.version                AS version,
+       r.license                AS license,
+       r.publishedBy            AS latestPublishedBy,
+       r.repository             AS declaredRepository,
+       direct                   AS directDependencies,
+       direct + indirect        AS packagesRead,
+       packagesWithRightsRead   AS packagesWithRightsRead,
+       accounts                 AS accountsThatCanPublish,
+       soleAccounts             AS accountsThatAreSolePublisher,
+       packagesWithOnePublisher AS packagesWithOnePublisher</pre>
+    <h3>PackageMaintainers</h3>
+    <pre>MATCH (p:NpmPackage {name: $package})-[:MAINTAINED_BY]-&gt;(a:NpmMaintainer)
+RETURN DISTINCT a.account                     AS account,
+       &#x27;https://www.npmjs.com/~&#x27; + a.account  AS profileUrl
+ORDER BY account</pre>
+    <h3>PublishAuthority</h3>
+    <pre>MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]-&gt;(r:NpmRelease)
+OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]-&gt;(d1:NpmDependency)
+OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]-&gt;(d2:NpmDependency)
+WITH count(d1) AS materialised
+OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]-&gt;(:NpmDependency)-[:MAINTAINED_BY]-&gt;(a0:NpmMaintainer)
+WITH materialised, count(a0) AS rightsRead
+MATCH (a:NpmMaintainer)-[c:CONTROLS]-&gt;(root:NpmPackage)
+WHERE c.packages &gt;= $minPackages
+OPTIONAL MATCH (a)-[s:SOLE_CONTROL]-&gt;(root)
+RETURN a.account                  AS account,
+       c.packages                 AS canPublish,
+       coalesce(s.packages, 0)    AS solePublisherOf,
+       &#x27;https://www.npmjs.com/~&#x27; + a.account AS profileUrl
+ORDER BY canPublish DESC, solePublisherOf DESC, account</pre>
+    <h3>SinglePublisherDependencies</h3>
+    <pre>MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]-&gt;(r:NpmRelease)
+OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]-&gt;(d1:NpmDependency)
+OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]-&gt;(d2:NpmDependency)
+WITH count(d1) AS materialised
+OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]-&gt;(:NpmDependency)-[:MAINTAINED_BY]-&gt;(a0:NpmMaintainer)
+WITH materialised, count(a0) AS rightsRead
+MATCH (s:SingleAccountPackage)
+RETURN DISTINCT s.name    AS package,
+       s.version          AS resolvedVersion,
+       s.soleAccount      AS soleAccount,
+       &#x27;https://www.npmjs.com/package/&#x27; + s.name AS packageUrl
+ORDER BY package</pre>
+    <h3>SurfaceContributors</h3>
+    <pre>MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]-&gt;(r:NpmRelease)
+OPTIONAL MATCH (r)-[:HAS_DEPENDENCY]-&gt;(d1:NpmDependency)
+OPTIONAL MATCH (d1)-[:HAS_DEPENDENCY]-&gt;(d2:NpmDependency)
+WITH count(d1) AS materialised
+OPTIONAL MATCH (:NpmRelease)-[:HAS_DEPENDENCY*1..2]-&gt;(dd:NpmDependency)-[:MAINTAINED_BY]-&gt;(a:NpmMaintainer)
+WITH a.account AS account, collect(DISTINCT dd.name) AS viaPackages
+UNWIND viaPackages AS pkg
+WITH pkg, account, size(viaPackages) AS packagesForAccount
+WITH pkg,
+     count(DISTINCT account) AS accounts,
+     count(DISTINCT CASE WHEN packagesForAccount = 1 THEN account END) AS exclusive
+// DIRECT or not decides who can act on the row, so it is projected rather than left implied.
+OPTIONAL MATCH (:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]-&gt;(:NpmRelease)-[:HAS_DEPENDENCY]-&gt;(dir:NpmDependency)
+  WHERE dir.name = pkg
+RETURN pkg                                    AS package,
+       accounts                               AS accounts,
+       exclusive                              AS exclusive,
+       count(dir) &gt; 0                         AS direct,
+       &#x27;https://www.npmjs.com/package/&#x27; + pkg AS packageUrl
+ORDER BY accounts DESC, package</pre>
+    <h3>ProportionReading</h3>
+    <pre>MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]-&gt;(r:NpmRelease)
+MATCH (r)-[:HAS_DEPENDENCY]-&gt;(d:NpmDependency)
+WITH r, count(d) AS dependenciesRead
+MATCH (r)-[:HAS_PROPORTION_REVIEW]-&gt;(v:ProportionReview)
+RETURN v.assessment      AS reading,
+       dependenciesRead  AS dependenciesRead</pre>
+    <h3>DirectDependencies</h3>
+    <pre>MATCH (p:NpmPackage {name: $package})-[:HAS_LATEST_RELEASE]-&gt;(r:NpmRelease)-[:HAS_DEPENDENCY]-&gt;(d:NpmDependency)
+RETURN DISTINCT d.name    AS package,
+       d.version          AS resolvedVersion,
+       d.bundled          AS bundled,
+       &#x27;https://www.npmjs.com/package/&#x27; + d.name AS packageUrl
+ORDER BY package</pre>
+  <h3>What an empty panel means</h3>
+  <p>A package with no dependencies has an empty tree, and that is a complete answer: the surface is
+  its own publishers alone. An empty tree can also mean deps.dev could not resolve the version
+  (NpmResolution records why), so check before reading it as "depends on nothing". A name npm does
+  not know returns nothing at all. The reading panel is empty when the world has no model
+  configured for it.</p>
+  <h3>What the appliance did here</h3>
+  <p>npm publishes who may publish each package, and deps.dev publishes the graph; nothing joins the
+  two. Here they are one query: each hop of the tree is fetched on demand from a cached per-package
+  call shared by every package that reaches it, and the publish-authority rules are concluded over
+  the result, so the surface is counted across the whole tree rather than one package at a time.</p>
+</section>
+<a class="pa-hiw-link" href="#how-it-works">How it works</a>
+<div id="embabel-badge" style="position:fixed;bottom:0;left:0;right:0;text-align:center;padding:6px 0;background:rgba(10,10,15,0.9);border-top:1px solid rgba(99,192,245,0.2);font-size:0.75rem;color:#6b7280;z-index:9999;pointer-events:none;">
+  Created with <a href="https://worlds.embabel.com" target="_blank" rel="noopener noreferrer" style="color:#63c0f5;text-decoration:none;pointer-events:auto;">Embabel Worlds</a>
+</div>
 </body>
 </html>
