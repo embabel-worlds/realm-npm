@@ -16,45 +16,69 @@
       metadata:
         identity: "true"
     notes: "Why you track this — the service that depends on it, or what you are watching for."
+  examples:
+    # STEERING. NpmPackage is seeded by hand; every other type is read live from it. Dependency
+    # trees are walked by chained hops, never by a variable-length pattern, because only a hop drives
+    # the fetch. Package names match exactly, scoped names included.
+    - q: "how many times was express downloaded last week and what version is current"
+      cypher: |
+        MATCH (p:NpmPackage {name: 'express'})-[:HAS_WEEKLY_DOWNLOADS]->(d:NpmDownloads)
+        OPTIONAL MATCH (p)-[:HAS_LATEST_RELEASE]->(r:NpmRelease)
+        RETURN p.name AS package, d.count AS weeklyDownloads, r.version AS version, r.license AS license
+    - q: "what does express depend on directly"
+      cypher: |
+        MATCH (p:NpmPackage {name: 'express'})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)-[:HAS_DEPENDENCY]->(d:NpmDependency)
+        RETURN DISTINCT d.name AS dependency, d.version AS resolvedVersion
+        ORDER BY dependency
+    - q: "who can publish lodash"
+      cypher: |
+        MATCH (p:NpmPackage {name: 'lodash'})-[:MAINTAINED_BY]->(a:NpmMaintainer)
+        RETURN DISTINCT a.account AS account ORDER BY account
+    - q: "is the repository express comes from archived, and what is its scorecard"
+      cypher: |
+        MATCH (p:NpmPackage {name: 'express'})-[:HAS_LATEST_RELEASE]->(r:NpmRelease)-[:HAS_SOURCE_PROJECT]->(s:NpmSourceProject)
+        OPTIONAL MATCH (s)-[:HAS_PROJECT_HEALTH]->(h:NpmProjectHealth)
+        OPTIONAL MATCH (s)-[:HAS_REPO_FACTS]->(f:NpmRepoFacts)
+        RETURN s.projectKey AS repository, s.relationProvenance AS linkProvenance, h.overallScore AS scorecard, f.archived AS archived
 
 # Momentum.
 - name: NpmDownloads
-  description: "How many times this package was downloaded from npm in the last seven days. Reached from NpmPackage via HAS_WEEKLY_DOWNLOADS. This is an ADOPTION signal, not a security one: a spike is often just a fresh release or a CI mirror, and a fall can mean the ecosystem moved on. It means something next to the release date and nothing on its own."
+  description: "One package's npm download count for the last seven complete days, identified by `key` (the package name it was read for), read live from api.npmjs.org. Reached from NpmPackage via HAS_WEEKLY_DOWNLOADS. This is an ADOPTION signal, not a security one: a spike is often just a fresh release or a CI mirror, and a fall can mean the ecosystem moved on. It means something next to the release date and nothing on its own."
   virtualJoins:
     - anchorLabel: NpmPackage
       relationship: HAS_WEEKLY_DOWNLOADS
       keyField: name
       recordKeyField: key
       producer: weeklyDownloads
-      description: "Last-week download count for a package — for 'is this still widely used'."
+      description: "This package's last-week download count (zero or one reading). One api.npmjs.org call per package, cached 12 hours; no edge means npm does not know the name. For 'is this still widely used'."
   properties:
     key:
       description: "The package name this was fetched for. Identity — one reading per package."
       metadata:
         identity: "true"
-    count: "Downloads in the last seven days."
-    periodStart: "First day counted, inclusive (YYYY-MM-DD)."
-    periodEnd: "Last day counted, inclusive (YYYY-MM-DD)."
+    count: { type: int, description: "Downloads in the seven days periodStart..periodEnd, a count of tarball fetches (CI and mirrors included), not of users." }
+    periodStart: "First UTC day counted, inclusive, ISO YYYY-MM-DD."
+    periodEnd: "Last UTC day counted, inclusive, ISO YYYY-MM-DD; normally yesterday or the day before."
 
 # Current published state.
 - name: NpmRelease
-  description: "What `npm install <package>` resolves to right now — the latest published version, its licence and its own one-line description. Reached from NpmPackage via HAS_LATEST_RELEASE. The licence is the field that earns this producer its keep: it is the obligation you actually took on, read from the registry rather than from whatever a README claims."
+  description: "One package's latest published release on the npm registry, identified by `key` (the package name): what `npm install <package>` resolves to right now, its licence and description. Reached from NpmPackage via HAS_LATEST_RELEASE. The licence is the field that earns this producer its keep: it is the obligation you actually took on, read from the registry rather than from whatever a README claims."
   virtualJoins:
     - anchorLabel: NpmPackage
       relationship: HAS_LATEST_RELEASE
       keyField: name
       recordKeyField: key
       producer: packageLatest
-      description: "Latest published version and metadata for a package."
+      description: "This package's latest published release (zero or one): version, licence, publisher, provenance and declared repository. One registry call per package, cached an hour and shared with MAINTAINED_BY. The start of every dependency walk: (p)-[:HAS_LATEST_RELEASE]->(r)-[:HAS_DEPENDENCY]->(d)."
   properties:
     key:
       description: "The package name. Identity — one latest-release node per package."
       metadata:
         identity: "true"
-    version: "Latest published semantic version."
-    description: "The package's own one-line description."
+    version: "The version the `latest` dist-tag points at now, exact semver as published, e.g. 4.21.2. Changes when the maintainers publish."
+    description: "The package's own one-line description from its package.json, as the author wrote it; empty when none."
     license: "SPDX licence id, e.g. `MIT`. Null for the handful of ancient packages that still publish the legacy object form, which is the safe failure rather than a wrong guess."
-    homepage: "Declared project homepage URL, if any."
+    homepage: "The homepage URL the package declares in package.json, unverified; empty when it declares none."
     publishedBy: >-
       The npm account that actually ran the publish for THIS version. Different from the
       maintainer list, which says who is allowed to: this says who did. A CI identity here

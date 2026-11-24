@@ -38,6 +38,9 @@
   # npm's own cache-control on this document is 300s for the CDN. An hour is generous for a fact
   # that changes when someone is added to a package, and cheap: the same fetch already serves
   # packageLatest.
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }
 
 # BUILD PROVENANCE PER DEPENDENCY, from the same registry document as the maintainers above.
@@ -57,4 +60,7 @@
     provenanceUrl: dist.attestations.url
     publishedBy: _npmUser.name
     version: version
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }

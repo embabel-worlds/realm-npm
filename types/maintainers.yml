@@ -14,7 +14,8 @@
 
 - name: NpmMaintainer
   description: >-
-    An npm account entitled to publish a new version of a package. Reached from NpmPackage and
+    One npm account entitled to publish a new version of a package, identified by `account` (the
+    npm username). Reached from NpmPackage and
     from NpmDependency via MAINTAINED_BY, so the same account node is shared by every package in
     the tree it can publish.
 
@@ -33,6 +34,7 @@
     not appear as changes; there is only a current answer.
   properties:
     account:
+      type: string
       description: >-
         The npm account name, e.g. `sindresorhus`. Identity — account names are unique across the
         registry, so one node serves every package the account can publish.
@@ -49,7 +51,8 @@
       recordKeyField: key
       producer: npmMaintainers
       description: >-
-        Who can publish a package you track:
+        Who can publish a package you track (one or more accounts), as the registry says today. One
+        registry call per package, cached an hour and shared with HAS_LATEST_RELEASE:
         `MATCH (p:NpmPackage {name: 'express'})-[:MAINTAINED_BY]->(a:NpmMaintainer)`.
     - anchorLabel: NpmDependency
       relationship: MAINTAINED_BY
@@ -63,13 +66,17 @@
       maxAnchors: 200
       maxFanoutTotal: 2000
       description: >-
-        Who can publish something in the tree:
-        `(r:NpmRelease)-[:HAS_DEPENDENCY*1..3]->(d:NpmDependency)-[:MAINTAINED_BY]->(a:NpmMaintainer)`.
+        Who can publish a package in the dependency tree. One cached registry call per distinct
+        package, up to 200 per hop. Walk the tree with chained HAS_DEPENDENCY hops first (they drive
+        the fetch), then match this over the warm nodes:
+        `(r:NpmRelease)-[:HAS_DEPENDENCY*1..2]->(d:NpmDependency)-[:MAINTAINED_BY]->(a:NpmMaintainer)`.
 
 - name: NpmBuildProvenance
   description: >-
-    Whether a dependency's published tarball can be traced to a build, and who ran the publish.
-    Reached from NpmDependency via HAS_PROVENANCE.
+    One package's build-provenance record for its LATEST version, identified by `key` (the package
+    name): whether that tarball can be traced to a build, and who ran the publish. Reached from
+    NpmDependency via HAS_PROVENANCE — note it is the package's latest release, which may not be the
+    version the tree resolved.
 
     PRESENCE IS THE FACT. `provenanceUrl` exists when npm recorded a SLSA attestation, meaning this
     tarball was built by a verifiable workflow from a named repository rather than uploaded from
@@ -92,7 +99,7 @@
         identity: "true"
     provenanceUrl: "The attestation bundle URL, when npm recorded one. Absent means none was recorded."
     publishedBy: "The account that ran the publish. A CI identity means the credential lives in a workflow rather than on a laptop."
-    version: "The version read."
+    version: "The latest version the registry served when this was read — not necessarily the version the dependency tree resolved."
   virtualJoins:
     - anchorLabel: NpmDependency
       relationship: HAS_PROVENANCE
@@ -102,5 +109,6 @@
       maxAnchors: 200
       maxFanoutTotal: 2000
       description: >-
-        Whether a dependency's release is attested:
+        Whether a dependency's latest release is attested (zero or one record). Same cached
+        registry call as MAINTAINED_BY, up to 200 per hop:
         `(d:NpmDependency)-[:HAS_PROVENANCE]->(p:NpmBuildProvenance)`.

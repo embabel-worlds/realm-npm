@@ -34,6 +34,9 @@
     defaultBranch: default_branch
     stars: stargazers_count
     fullName: full_name
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
 
 - name: githubLastCommit
@@ -51,4 +54,7 @@
     lastCommitDate: commit.committer.date
     lastCommitBy: commit.author.name
     lastCommitMessage: commit.message
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }

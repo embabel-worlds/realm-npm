@@ -27,7 +27,8 @@
 
 - name: TrustSurface
   description: >-
-    The publish-authority surface of one npm package's DEPENDENCY TREE: how much of it was read, how
+    How many npm accounts can publish into one package's dependency tree. The publish-authority
+    surface of the tree, two hops deep: how much of it was read, how
     many distinct accounts can publish into it, and how many are the only account able to publish
     something you would install.
 
@@ -99,8 +100,8 @@
 
 - name: PublishAuthority
   description: >-
-    Every npm account that can publish something in this package's DEPENDENCY TREE, ordered by how
-    much of the tree it reaches. The package's own maintainers are in `PackageMaintainers` — see the
+    Accounts that can publish into this package's dependency tree, by reach. Every npm account
+    that can publish something in the tree (two hops deep), ordered by how much of it it reaches. The package's own maintainers are in `PackageMaintainers` — see the
     note there for why the two cannot be one query.
 
     NOT A FINDING, AND THE TOP OF THIS LIST IS USUALLY A GOOD THING. One maintainer looking after a
@@ -135,8 +136,8 @@
 
 - name: SinglePublisherDependencies
   description: >-
-    The packages in this tree that exactly one npm account is entitled to publish, with that
-    account named.
+    Packages in this tree that only one npm account can publish, and who. The packages (two hops
+    deep) that exactly one npm account is entitled to publish, with that account named.
 
     ONE MAINTAINER IS THE NPM NORM. Most packages in the registry have a single maintainer and most
     of them are well looked after; a great deal of the ecosystem's best work is one person's. What
@@ -166,12 +167,10 @@
 
 - name: DirectDependencies
   description: >-
-    This package's direct dependencies, as deps.dev resolved them, with the licence and the account
-    that actually published each one.
-
-    `publishedBy` is who pushed the bytes, which is a different question from who is allowed to: a
-    CI identity here means the credential lives in a workflow rather than on somebody's laptop.
-    Absent on older releases, and absence means the registry did not record it.
+    This package's direct dependencies and the versions deps.dev resolved. One level only, as
+    deps.dev resolved them; the licence and publisher of each are in LicenceExposure and
+    BuildProvenance. `bundled` is true when the dependency ships inside this package's tarball.
+    No rows can mean no dependencies OR a graph deps.dev could not resolve; NpmResolution says which.
   params:
     package:
       type: string
@@ -187,8 +186,8 @@
 
 - name: SurfaceContributors
   description: >-
-    Which dependency brings the most publish accounts into this tree, and how many of them arrive
-    ONLY through it. The answer is routinely one package nobody thinks about: `express` reaches 79
+    Which dependency brings the most publish accounts into this package's tree. And how many of
+    them arrive ONLY through it, two hops deep. The answer is routinely one package nobody thinks about: `express` reaches 79
     accounts, and 55 of them arrive through `ms`, a utility that converts `"2 days"` to a number.
 
     WHO CAN ACT ON A ROW DEPENDS ON `direct`, and the honest answer is usually "not you". A DIRECT
@@ -231,8 +230,8 @@
 
 - name: LicenceExposure
   description: >-
-    Every licence in this package's dependency tree, how many packages carry it, and an example of
-    each. The obligations you acquired by installing, as opposed to the one the package itself
+    Licences in this package's dependency tree, with how many packages carry each. Two hops deep,
+    with an example of each. The obligations you acquired by installing, as opposed to the one the package itself
     advertises.
 
     THE RESOLVED VERSION'S LICENCE IS THE ONE THAT BINDS YOU. A range in somebody's package.json is
@@ -268,8 +267,9 @@
 
 - name: ProportionReading
   description: >-
-    A MODEL'S READING of this package's direct dependencies: which ones do a trivial job relative to
-    the position they occupy, and which a package of this kind would not be expected to need at all.
+    A model's reading of which direct dependencies look out of proportion to their job. A MODEL'S
+    READING of this package's direct dependencies (not the deeper tree): which ones do a trivial job
+    relative to the position they occupy, and which a package of this kind would not be expected to need at all.
     That mismatch is where a large publish surface hides behind a small package.
 
     THIS IS A JUDGEMENT, NOT A REGISTER FACT, and it is the only thing on this realm that is. Every

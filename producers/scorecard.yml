@@ -27,6 +27,9 @@
   project:
     projectKey: projectKey.id
     relationProvenance: relationProvenance
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
 
 # The headline scorecard for that repository.
@@ -51,6 +54,9 @@
     licence: license
     summary: description
   # Scorecard is recomputed periodically upstream, so a day is fresh and costs one call per repo.
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
 
 # The individual checks — where the diagnosis is.
@@ -70,4 +76,7 @@
     name: name
     score: score
     reason: reason
+  # Key-addressed: the endpoint takes the key in its path and no filter, so every WHERE on this
+  # producer's records is applied after the fetch. Nothing to push.
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }

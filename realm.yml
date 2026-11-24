@@ -10,9 +10,13 @@ description: |
   the licence, it tells you which of your dependencies are thriving, which are
   quietly ossifying, and where an obligation you did not choose crept in.
 
-  Name a package by its exact npm name. Two open, keyless sources answer:
-  npm's download-counts API and the registry itself. Nothing to configure.
-version: 0.1.0
+  It also walks the dependency tree (deps.dev), names every account that can
+  publish into it, and reads the source repository's OpenSSF Scorecard.
+
+  Name a package by its exact npm name, scoped names included. The npm registry,
+  npm's download-counts API and deps.dev are open and keyless; GitHub facts use
+  GH_TOKEN when set. Nothing else to configure.
+version: 0.1.1
 author: rod
 category: security
 tags:
